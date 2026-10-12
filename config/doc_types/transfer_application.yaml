@@ -1,0 +1,41 @@
+# Пример своего типа документа, добавлен без изменений в коде.
+# Чтобы добавить тип: скопировать файл, описать поля (key, label, aliases, type, rule)
+# и перезапустить сервис. Тип появится на сайте, в боте и в /doc-types.
+# Типы полей: text, person_name, date, int, enum, doc_number, group, signature, seal.
+# rule ссылается на раздел 4, потому что отдельного раздела про перевод в Положении нет.
+key: transfer_application
+title: Заявление о переводе
+rules_section: "4"
+detect:
+  title_keywords: ["заявление о переводе", "о переводе"]
+  label_keywords: ["текущий вуз", "желаемое направление", "дата заявления"]
+complete_message_rules: ["4.1", "4.2"]
+not_required:
+  seal: "4.3"
+fields:
+  - key: student_name
+    label: ФИО студента
+    aliases: ["фио", "фамилия", "имя студента", "как зовут студента", "кто студент", "кто подаёт заявление"]
+    type: person_name
+    rule: "4.1"
+  - key: current_university
+    label: Текущий вуз
+    aliases: ["откуда переводится", "из какого вуза", "нынешний вуз", "текущий университет", "где учится сейчас"]
+    type: text
+    rule: "4.1"
+  - key: target_program
+    label: Желаемое направление
+    aliases: ["куда переводится", "на какое направление", "целевое направление", "желаемая специальность"]
+    type: text
+    rule: "4.1"
+  - key: application_date
+    label: Дата заявления
+    aliases: ["когда подано заявление", "дата подачи", "когда написано заявление", "число заявления"]
+    type: date
+    rule: "4.1"
+  - key: signature_present
+    label: Подпись студента
+    aliases: ["подписано ли", "есть ли подпись", "подписал ли студент"]
+    type: signature
+    anchor: "подпись студента"
+    rule: "4.2"

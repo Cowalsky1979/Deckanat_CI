@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+backend/media/
+backend/db.sqlite3
+backend/static/frontend/
+.env
+*.egg-info/
+models/
+runtime/
+*.log
+scripts/dev/
+
+# фото и сканы
+*.png
+*.jpg
+*.jpeg
+!frontend/public/*.png
+
+# синтетические данные
+data/synth/
+data/demo/
+
+# результаты прогонов и бенчмарков
+/results*.json
+/bench*.json
+/bench_out/

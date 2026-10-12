@@ -1,0 +1,61 @@
+key: study_certificate
+title: Справка об обучении
+rules_section: "3"
+detect:
+  title_keywords: ["справка об обучении", "об обучении"]
+  label_keywords: ["название вуза", "направление подготовки", "форма обучения", "период обучения"]
+complete_message_rules: ["3.1", "3.2", "3.3"]
+fields:
+  - key: student_name
+    label: ФИО студента
+    aliases: ["фио", "фамилия", "имя студента", "как зовут студента", "кто студент"]
+    type: person_name
+    rule: "3.1"
+  - key: university
+    label: Название вуза
+    aliases: ["университет", "учебное заведение", "где учится", "в каком вузе", "какой вуз", "вуз выдал", "название университета"]
+    type: text
+    rule: "3.1"
+  - key: program
+    label: Направление подготовки
+    aliases: ["специальность", "на кого учится"]
+    type: text
+    rule: "3.1"
+  - key: study_form
+    label: Форма обучения
+    aliases: ["очная или заочная"]
+    type: enum
+    values: ["очная", "очно-заочная", "заочная"]
+    rule: "3.1"
+  - key: study_start
+    label: Начало периода обучения
+    aliases: ["начало обучения", "с какого года учится", "дата начала обучения", "когда начал обучение"]
+    type: date
+    rule: "3.1"
+  - key: study_end
+    label: Окончание периода обучения
+    aliases: ["окончание обучения", "конец обучения", "когда заканчивает", "дата окончания обучения", "до какого года учится"]
+    type: date
+    rule: "3.1"
+  - key: document_number
+    label: Номер справки
+    aliases: ["номер документа", "какой номер у справки"]
+    type: doc_number
+    rule: "3.1"
+  - key: issue_date
+    label: Дата выдачи
+    aliases: ["когда выдана", "дата выдачи справки", "когда выдали"]
+    type: date
+    rule: "3.1"
+  - key: signature_present
+    label: Подпись сотрудника
+    aliases: ["подписана ли", "есть ли подпись", "кто подписал"]
+    type: signature
+    anchor: "подпись сотрудника"
+    rule: "3.2"
+  - key: seal_present
+    label: Печать вуза
+    aliases: ["есть ли печать", "стоит ли печать", "м.п."]
+    type: seal
+    anchor: "м.п."
+    rule: "3.3"
