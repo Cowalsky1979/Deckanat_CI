@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+/* цвета под сайт банка Центр-инвест: зелёный, жёлто-оранжевый акцент, серые фоны, шрифт Inter */
+@theme {
+  --color-brand-50: #f0f7f0;
+  --color-brand-100: #e0efe0;
+  --color-brand-200: #bddebb;
+  --color-brand-300: #91cc8e;
+  --color-brand-400: #64bd5f;
+  --color-brand-500: #50b848;
+  --color-brand-600: #398233;
+  --color-brand-700: #285c24;
+  --color-brand-800: #1c4119;
+  --color-brand-900: #142e12;
+
+  --color-sun-50: #fffcef;
+  --color-sun-100: #fef8dd;
+  --color-sun-200: #fcee9c;
+  --color-sun-300: #fae75a;
+  --color-sun-400: #fbc500;
+  --color-sun-500: #fca100;
+  --color-sun-600: #fe7200;
+  --color-sun-700: #b45100;
+  --color-sun-900: #7f3900;
+
+  --color-ink-50: #f8f9fc;
+  --color-ink-100: #f1f3f9;
+  --color-ink-200: #eaecf1;
+  --color-ink-300: #d4d5da;
+  --color-ink-400: #c4c5ca;
+  --color-ink-500: #8b8b8f;
+  --color-ink-600: #626265;
+  --color-ink-700: #494b52;
+  --color-ink-800: #313132;
+  --color-ink-900: #232323;
+
+  --color-surface: #ffffff;
+  /* серые скруглённые плашки на белом фоне */
+  --color-panel: #f4f5f7;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  --paper: #ffffff;
+  --hero-from: #e8e9eb;
+  --hero-via: #f4f4f4;
+  --hero-to: #ebeced;
+}
+
+/* тёмная тема: те же токены, другие цвета */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #111316;
+  --color-surface: #1f2329;
+  --color-panel: #181b20;
+  --hero-from: #1a1d22;
+  --hero-via: #22262d;
+  --hero-to: #1c1f25;
+
+  --color-ink-50: #22262d;
+  --color-ink-100: #272b33;
+  --color-ink-200: #343941;
+  --color-ink-300: #444a54;
+  --color-ink-400: #5b6270;
+  --color-ink-500: #8e95a3;
+  --color-ink-600: #aab1bd;
+  --color-ink-700: #c6ccd6;
+  --color-ink-800: #e4e7ec;
+  --color-ink-900: #f3f4f7;
+
+  --color-brand-50: #17301b;
+  --color-brand-100: #1d4221;
+  --color-brand-200: #2f6b31;
+  --color-brand-300: #3f8f40;
+  --color-brand-700: #8fd98a;
+
+  --color-sun-50: #33290a;
+  --color-sun-100: #4a3a0c;
+  --color-sun-400: #c99a06;
+  --color-sun-900: #fbe28a;
+
+  --color-green-50: #12301b;
+  --color-green-100: #194025;
+  --color-red-100: #4a1a1a;
+  --color-green-300: #2f7a44;
+  --color-green-600: #4ade80;
+  --color-green-800: #86efac;
+  --color-green-900: #bbf7d0;
+
+  --color-amber-50: #3a2a06;
+  --color-amber-300: #9a6b0c;
+  --color-amber-600: #fbbf24;
+  --color-amber-800: #fde68a;
+
+  --color-red-50: #3b1414;
+  --color-red-300: #8b2f2f;
+  --color-red-700: #fca5a5;
+  --color-red-800: #fca5a5;
+  --color-red-900: #fecaca;
+
+  --color-blue-50: #15243d;
+  --color-blue-300: #2f5aa8;
+  --color-blue-800: #93c5fd;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--color-ink-800);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color .2s ease, color .2s ease;
+}
+img.doc-image { transition: filter .2s ease; }
+:root[data-theme="dark"] img.doc-image { filter: brightness(.92); }
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+@layer components {
+  .container-x { @apply mx-auto w-full max-w-[1360px] px-4 sm:px-6 lg:px-[88px]; }
+  .card { @apply bg-panel rounded-3xl; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[15px] font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700; }
+  .btn-accent { @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[15px] font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[15px] font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border border-brand-500 text-ink-900 hover:bg-brand-50; }
+  .btn-lg { @apply h-14 px-10 text-lg; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium; }
+  .input { @apply w-full rounded-xl border border-ink-300 bg-surface px-3.5 py-3 text-[15px] text-ink-800 outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-500; }
+  /* вкладки капсом */
+  .tab-upper { @apply relative pb-3 text-[15px] sm:text-[17px] uppercase tracking-wide whitespace-nowrap transition text-ink-500 hover:text-ink-900; }
+  .tab-upper[aria-selected="true"] { @apply text-ink-900; }
+  .tab-upper[aria-selected="true"]::after { content: ""; @apply absolute left-0 right-0 bottom-0 h-[3px] rounded-full bg-brand-500; }
+  .section-title { @apply text-[32px] sm:text-[44px] leading-tight font-medium text-ink-900; }
+  .hero-bg { background: linear-gradient(100deg, var(--hero-from) 0%, var(--hero-via) 55%, var(--hero-to) 100%); }
+}
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+@keyframes pulse-ring { 0% { opacity: .9 } 50% { opacity: .35 } 100% { opacity: .9 } }
+.box-highlight { animation: pulse-ring 1.2s ease-in-out infinite; }
+
+/* в Telegram: шапка поменьше и отступ снизу под системные кнопки */
+:root[data-tg="1"] .tg-hide { display: none; }
+:root[data-tg="1"] main { padding-bottom: 2.5rem; }
+
+/* скрытая полоса прокрутки у горизонтальных меню/вкладок на узких экранах */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
