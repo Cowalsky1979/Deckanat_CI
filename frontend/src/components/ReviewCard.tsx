@@ -15,7 +15,7 @@ export default function ReviewCard({ doc }: { doc: Doc }) {
     return (
       <div className="card p-5 text-sm text-ink-600">
         Чтобы отправить документ в деканат и следить за решением, выберите роль в{' '}
-        <Link to="/cabinet" className="text-brand-600 font-medium hover:underline">кабинете</Link>.
+        <Link to="/cabinet" className="text-brand-700 font-medium hover:underline">кабинете</Link>.
       </div>
     )
   }

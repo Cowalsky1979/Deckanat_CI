@@ -1,7 +1,7 @@
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { LogOut, MessageCircleMore, Moon, ShieldCheck, Sun } from 'lucide-react'
+import { LogOut, Moon, ShieldCheck, Sun } from 'lucide-react'
 import { getTheme, setTheme, type Theme } from './theme'
 import { api } from './api'
 import { clearProfile, ROLE_TITLES, useProfile } from './profile'
@@ -59,7 +59,7 @@ function ProfileBadge() {
   return (
     <div className="flex items-center gap-1 sm:gap-2 shrink-0">
       <Link to="/cabinet" className="flex items-center gap-2 text-sm text-ink-700 hover:text-ink-900" title="Открыть кабинет">
-        <span className={`chip whitespace-nowrap ${profile.role === 'dean' ? 'border-sun-400 bg-sun-50 text-sun-900' : 'border-brand-300 bg-brand-50 text-brand-800'}`}>
+        <span className={`chip whitespace-nowrap ${profile.role === 'dean' ? 'border-sun-400 bg-sun-50 text-sun-900' : 'border-brand-300 bg-brand-50 text-brand-700'}`}>
           {ROLE_TITLES[profile.role]}
         </span>
         <span className="hidden md:inline max-w-36 truncate">{profile.name}</span>
@@ -149,7 +149,6 @@ function ScrollToHash() {
 }
 
 export default function App() {
-  const { pathname } = useLocation()
   return (
     <div className="min-h-full flex flex-col">
       <ScrollToHash />
@@ -168,7 +167,7 @@ export default function App() {
           <ThemeToggle />
           <Link
             to="/#upload"
-            className="hidden xl:inline-flex h-12 shrink-0 items-center rounded-xl border border-brand-500 px-5 text-[15px] uppercase tracking-wide text-brand-600 hover:bg-brand-50 transition"
+            className="hidden xl:inline-flex h-12 shrink-0 items-center rounded-xl border border-brand-500 px-5 text-[15px] uppercase tracking-wide text-brand-700 hover:bg-brand-50 transition"
           >
             Проверить документ
           </Link>
@@ -189,16 +188,6 @@ export default function App() {
           <Route path="/cabinet" element={<CabinetPage />} />
         </Routes>
       </main>
-
-      {/* плавающая кнопка для вопроса */}
-      <Link
-        to={pathname.startsWith('/d/') ? '#ask' : '/#ask'}
-        className="fixed bottom-6 right-6 z-30 hidden sm:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-brand-500 shadow-[0_8px_28px_rgba(35,35,35,0.14)] hover:scale-105 transition"
-        title="Задать вопрос по документу"
-        aria-label="Задать вопрос по документу"
-      >
-        <MessageCircleMore size={30} strokeWidth={2} />
-      </Link>
 
       <footer className="bg-panel mt-10">
         <div className="container-x py-8 grid gap-4 sm:grid-cols-[1fr_auto] text-sm text-ink-500">

@@ -39,7 +39,7 @@ export default function RoleSelect() {
               onClick={() => setRole(key)}
               className={`text-left rounded-2xl border-2 p-4 transition ${role === key ? 'border-brand-500 bg-brand-50' : 'border-ink-200 bg-surface hover:border-brand-300'}`}
             >
-              <Icon className={role === key ? 'text-brand-600' : 'text-ink-500'} />
+              <Icon className={role === key ? 'text-brand-700' : 'text-ink-500'} />
               <div className="mt-2 font-semibold text-ink-900">{title}</div>
               <div className="mt-1 text-sm text-ink-600">{text}</div>
             </button>

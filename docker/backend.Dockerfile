@@ -26,5 +26,6 @@ COPY --from=frontend /app/frontend/dist frontend/dist
 RUN python scripts/download_models.py || true
 WORKDIR /app/backend
 EXPOSE 8000
-# миграции не хранятся в репозитории, поэтому генерируются при старте (при наличии файлов — "No changes detected")
-CMD ["sh", "-c", "python manage.py makemigrations documents --noinput && python manage.py migrate --noinput && python -m waitress --listen=0.0.0.0:8000 --threads=4 dekanat.wsgi:application"]
+# миграции не хранятся в репозитории, поэтому генерируются при старте (при наличии файлов - "No changes detected");
+# serve = тот же waitress, но с понятными адресами в логе
+CMD ["sh", "-c", "python manage.py makemigrations documents --noinput && python manage.py migrate --noinput && python manage.py serve --port 8000 --threads 4"]

@@ -42,7 +42,7 @@ function Hero({ onUpload }: { onUpload: () => void }) {
   }, [i, paused])
   const s = SLIDES[i]
   const arrow =
-    'absolute top-1/2 -translate-y-1/2 z-10 hidden md:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-ink-800 shadow-[0_6px_20px_rgba(35,35,35,0.10)] ring-[6px] ring-[var(--paper)] hover:text-brand-600 transition'
+    'absolute top-1/2 -translate-y-1/2 z-10 hidden md:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-ink-800 shadow-[0_6px_20px_rgba(35,35,35,0.10)] ring-[6px] ring-[var(--paper)] hover:text-brand-700 transition'
   return (
     <section className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} aria-roledescription="карусель">
       <div className="hero-bg rounded-[28px] overflow-hidden grid lg:grid-cols-[1.15fr_1fr] items-center min-h-[380px] lg:min-h-[560px]">

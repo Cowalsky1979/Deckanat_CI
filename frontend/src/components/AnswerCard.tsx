@@ -14,7 +14,7 @@ function tone(qa: QA) {
   if (!qa.answerable) return { cls: 'border-ink-300 bg-ink-50', icon: <HelpCircle className="text-ink-500" size={20} />, title: 'Нет информации' }
   if (qa.value === 'document_ok') return { cls: 'border-green-300 bg-green-50', icon: <CheckCircle2 className="text-green-600" size={20} />, title: 'Документ содержит обязательные сведения' }
   if (qa.value === 'missing_fields') return { cls: 'border-amber-300 bg-amber-50', icon: <AlertTriangle className="text-amber-600" size={20} />, title: 'Не хватает обязательных сведений' }
-  return { cls: 'border-brand-200 bg-brand-50', icon: <Info className="text-brand-600" size={20} />, title: 'Ответ' }
+  return { cls: 'border-brand-200 bg-brand-50', icon: <Info className="text-brand-700" size={20} />, title: 'Ответ' }
 }
 
 export default function AnswerCard({ qa, fields, docId, onSelect, highlighted }: Props) {
