@@ -44,7 +44,7 @@ function Hero({ onUpload }: { onUpload: () => void }) {
   const arrow =
     'absolute top-1/2 -translate-y-1/2 z-10 hidden md:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-ink-800 shadow-[0_6px_20px_rgba(35,35,35,0.10)] ring-[6px] ring-[var(--paper)] hover:text-brand-600 transition'
   return (
-    <section className="tg-hide relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} aria-roledescription="карусель">
+    <section className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} aria-roledescription="карусель">
       <div className="hero-bg rounded-[28px] overflow-hidden grid lg:grid-cols-[1.15fr_1fr] items-center min-h-[380px] lg:min-h-[560px]">
         <div key={i} className="px-6 py-10 sm:px-12 lg:pl-[128px] lg:pr-4 animate-[fade-in_.5s_ease]">
           <h1 className="text-[34px] sm:text-[48px] lg:text-[58px] font-bold leading-[1.08] tracking-[-0.02em] text-ink-900">{s.title}</h1>
@@ -165,7 +165,7 @@ export default function UploadPage() {
               {file ? (
                 <div className="flex flex-col items-center gap-3">
                   {preview ? (
-                    <img src={preview} alt="превью" className="max-h-64 rounded-xl shadow" />
+                    <img src={preview} alt="превью" className="max-h-64 max-w-full object-contain rounded-xl shadow" />
                   ) : (
                     <div className="h-24 w-20 rounded-lg bg-panel border border-ink-200 flex items-center justify-center text-xs text-ink-500">PDF</div>
                   )}
@@ -241,7 +241,7 @@ export default function UploadPage() {
         </div>
       </section>
 
-      <section className="tg-hide mt-16 sm:mt-20">
+      <section className="mt-16 sm:mt-20">
         <h2 className="section-title">Как это работает</h2>
         <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {HOW.map(([title, text], k) => (

@@ -16,4 +16,11 @@ urlpatterns = [
     path("documents/<uuid:pk>/annotated.png", views.AnnotatedView.as_view()),
     path("documents/<uuid:pk>/fields/<str:key>/crop.png", views.CropView.as_view()),
     path("documents/<uuid:pk>/export.json", views.ExportView.as_view()),
+    # кабинет
+    path("profiles", views.ProfileView.as_view()),
+    path("profiles/me", views.ProfileMeView.as_view()),
+    path("documents/<uuid:pk>/submit", views.SubmitReviewView.as_view()),
+    path("documents/<uuid:pk>/review/seen", views.ReviewSeenView.as_view()),
+    path("documents/<uuid:pk>/review/decide", views.ReviewDecideView.as_view()),
+    path("reviews/summary", views.ReviewSummaryView.as_view()),
 ]

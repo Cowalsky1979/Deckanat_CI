@@ -26,6 +26,10 @@ frontend/dist/
 backend/media/
 backend/db.sqlite3
 backend/static/frontend/
+
+# миграции БД (генерируются: python manage.py makemigrations documents)
+backend/**/migrations/*.py
+!backend/**/migrations/__init__.py
 .env
 *.egg-info/
 models/

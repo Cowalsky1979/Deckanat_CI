@@ -8,6 +8,29 @@ def upload_path(instance, filename):
     return f"uploads/{instance.id}/original.{ext}"
 
 
+class Profile(models.Model):
+    """Профиль кабинета (без входа: роль + имя; может быть привязан к Telegram id загрузок из бота)."""
+
+    class Role(models.TextChoices):
+        STUDENT = "student", "студент"
+        DEAN = "dean", "деканат"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    role = models.CharField(max_length=16, choices=Role.choices)
+    name = models.CharField(max_length=120)
+    # null, а не пустая строка: unique допускает много NULL
+    telegram_user_id = models.CharField(max_length=32, null=True, blank=True, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "профиль"
+        verbose_name_plural = "профили"
+
+    def __str__(self):
+        return f"{self.name} ({self.get_role_display()})"
+
+
 class UploadedDocument(models.Model):
     class Status(models.TextChoices):
         PROCESSING = "processing", "обрабатывается"
@@ -32,6 +55,7 @@ class UploadedDocument(models.Model):
     error = models.TextField(blank=True)
     source = models.CharField(max_length=16, choices=Source.choices, default=Source.WEB)
     telegram_user_id = models.CharField(max_length=32, blank=True, db_index=True)
+    owner = models.ForeignKey(Profile, null=True, blank=True, on_delete=models.SET_NULL, related_name="documents")
     timings = models.JSONField(default=dict, blank=True)
     pending_question = models.TextField(blank=True)      # вопрос, который пришел вместе с файлом
     pending_check = models.BooleanField(default=False)   # проверка без вопроса сразу после загрузки
@@ -76,3 +100,33 @@ class QuestionAnswer(models.Model):
         ordering = ["created_at"]
         verbose_name = "вопрос-ответ"
         verbose_name_plural = "вопросы-ответы"
+
+
+class DocumentReview(models.Model):
+    """Заявка студента в деканат и решение по ней."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "на рассмотрении"
+        ACCEPTED = "accepted", "принято"
+        REJECTED = "rejected", "отклонено"
+
+    class ReasonSource(models.TextChoices):
+        AI = "ai", "причина от ИИ"
+        MANUAL = "manual", "своя причина"
+
+    document = models.OneToOneField(UploadedDocument, on_delete=models.CASCADE, related_name="review")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    reviewer = models.ForeignKey(Profile, null=True, blank=True, on_delete=models.SET_NULL, related_name="reviews")
+    comment = models.TextField(blank=True)
+    reason_source = models.CharField(max_length=8, choices=ReasonSource.choices, blank=True)
+    seen_by_dean = models.BooleanField(default=False)   # для счетчика новых заявок
+
+    class Meta:
+        ordering = ["-submitted_at"]
+        verbose_name = "заявка в деканат"
+        verbose_name_plural = "заявки в деканат"
+
+    def __str__(self):
+        return f"{self.document_id} {self.status}"

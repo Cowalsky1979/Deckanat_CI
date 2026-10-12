@@ -13,13 +13,15 @@ from rest_framework.views import APIView
 from dekanat_core.rules.positions import load_positions
 
 from . import services
-from .models import UploadedDocument
-from .serializers import (AskSerializer, ChangeTypeSerializer, DocumentSerializer, QuestionAnswerSerializer,
-                          UploadSerializer)
+from .identity import HEADER, current_profile, require_profile
+from .models import DocumentReview, Profile, UploadedDocument
+from .serializers import (AskSerializer, ChangeTypeSerializer, DecideSerializer, DocumentListSerializer,
+                          DocumentSerializer, ProfileCreateSerializer, ProfileSerializer, QuestionAnswerSerializer,
+                          ReviewSerializer, UploadSerializer)
 
 
 def _doc(pk) -> UploadedDocument:
-    return get_object_or_404(UploadedDocument.objects.select_related("result"), pk=pk)
+    return get_object_or_404(UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer"), pk=pk)
 
 
 class HealthView(APIView):
@@ -51,6 +53,27 @@ class RulesView(APIView):
 class DocumentListCreateView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
+    @extend_schema(responses=DocumentListSerializer(many=True))
+    def get(self, request):
+        """Список для кабинета: студент видит свои документы, деканат - заявки (?review=pending|decided|all)."""
+        profile = require_profile(request)
+        qs = UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer").prefetch_related("questions")
+        if profile.role == Profile.Role.DEAN:
+            mode = request.GET.get("review", "pending")
+            if mode == "pending":
+                qs = qs.filter(review__status=DocumentReview.Status.PENDING).order_by("review__submitted_at")
+            elif mode == "decided":
+                qs = qs.filter(review__isnull=False).exclude(review__status=DocumentReview.Status.PENDING).order_by("-review__decided_at")
+            else:
+                qs = qs.filter(review__isnull=False).order_by("-review__submitted_at")
+        else:
+            qs = qs.filter(owner=profile)
+        try:
+            limit = max(1, min(int(request.GET.get("limit", 100)), 500))
+        except ValueError:
+            limit = 100
+        return Response(DocumentListSerializer(qs[:limit], many=True, context={"request": request}).data)
+
     @extend_schema(request=UploadSerializer, responses=DocumentSerializer)
     def post(self, request):
         ser = UploadSerializer(data=request.data)
@@ -61,10 +84,12 @@ class DocumentListCreateView(APIView):
         check = bool(ser.validated_data.get("check"))
         # async=1: сразу отдаем 202, обработка идет в фоне (нужно для туннеля)
         wait = str(request.data.get("async", "")).lower() not in ("1", "true", "yes")
+        tg_id = ser.validated_data.get("telegram_user_id", "")
+        owner = services.owner_for(request.headers.get(HEADER), tg_id)
         try:
             doc = services.process_upload(data, f.name, ser.validated_data.get("doc_type") or "auto",
                                           source=ser.validated_data.get("source", "web"),
-                                          telegram_user_id=ser.validated_data.get("telegram_user_id", ""),
+                                          telegram_user_id=tg_id, owner=owner,
                                           question=q, check=check, wait=wait)
         except services.ProcessingError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
@@ -122,6 +147,76 @@ class CheckView(APIView):
         if doc.status != UploadedDocument.Status.DONE:
             return Response({"detail": "Документ не обработан"}, status=409)
         return Response(QuestionAnswerSerializer(services.check(doc)).data)
+
+
+# ---------- кабинет: профили и заявки ----------
+
+class ProfileView(APIView):
+    parser_classes = [JSONParser, FormParser]
+
+    @extend_schema(request=ProfileCreateSerializer, responses=ProfileSerializer)
+    def post(self, request):
+        ser = ProfileCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        d = ser.validated_data
+        profile, created = services.find_or_create_profile(d["role"], d["name"], d["telegram_user_id"])
+        return Response(ProfileSerializer(profile).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class ProfileMeView(APIView):
+    def get(self, request):
+        profile = current_profile(request)
+        if profile is None:
+            return Response({"detail": "Профиль не найден"}, status=404)
+        return Response(ProfileSerializer(profile).data)
+
+
+class SubmitReviewView(APIView):
+    @extend_schema(responses=ReviewSerializer)
+    def post(self, request, pk):
+        profile = require_profile(request, Profile.Role.STUDENT)
+        doc = _doc(pk)
+        if doc.owner_id is not None and doc.owner_id != profile.id:
+            return Response({"detail": "Это документ другого студента"}, status=403)
+        try:
+            review = services.submit_for_review(doc, profile)
+        except services.ReviewError as exc:
+            return Response({"detail": str(exc)}, status=409)
+        return Response(ReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+class ReviewSummaryView(APIView):
+    def get(self, request):
+        require_profile(request, Profile.Role.DEAN)
+        pending = DocumentReview.objects.filter(status=DocumentReview.Status.PENDING)
+        return Response({"pending": pending.count(), "unseen": pending.filter(seen_by_dean=False).count()})
+
+
+def _review(pk) -> DocumentReview:
+    return get_object_or_404(DocumentReview.objects.select_related("document", "reviewer"), document_id=pk)
+
+
+class ReviewSeenView(APIView):
+    def post(self, request, pk):
+        require_profile(request, Profile.Role.DEAN)
+        review = _review(pk)
+        if not review.seen_by_dean:
+            review.seen_by_dean = True
+            review.save(update_fields=["seen_by_dean"])
+        return Response(ReviewSerializer(review).data)
+
+
+class ReviewDecideView(APIView):
+    parser_classes = [JSONParser, FormParser]
+
+    @extend_schema(request=DecideSerializer, responses=DocumentSerializer)
+    def post(self, request, pk):
+        profile = require_profile(request, Profile.Role.DEAN)
+        review = _review(pk)
+        ser = DecideSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        services.decide(review, profile, **ser.validated_data)
+        return Response(DocumentSerializer(_doc(pk), context={"request": request}).data)
 
 
 class OcrLinesView(APIView):

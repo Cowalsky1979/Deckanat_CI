@@ -25,7 +25,7 @@ export default function AnswerCard({ qa, fields, docId, onSelect, highlighted }:
       <div className="text-xs text-ink-500 mb-1">Вопрос: {qa.question}</div>
       <div className="flex items-start gap-2">
         {t.icon}
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm">{t.title}</div>
           <div className="text-sm text-ink-800 mt-1">{qa.answer}</div>
           {qa.answerable && qa.value && !['document_ok', 'missing_fields'].includes(qa.value) && (
@@ -39,7 +39,7 @@ export default function AnswerCard({ qa, fields, docId, onSelect, highlighted }:
             )}
           </div>
           {showCrop && (
-            <img src={api.cropUrl(docId, qa.field_key)} alt="фрагмент снимка" className="mt-3 max-h-40 rounded-lg border border-ink-200 bg-surface" />
+            <img src={api.cropUrl(docId, qa.field_key)} alt="фрагмент снимка" className="mt-3 max-h-40 max-w-full w-auto object-contain rounded-lg border border-ink-200 bg-surface" />
           )}
         </div>
       </div>

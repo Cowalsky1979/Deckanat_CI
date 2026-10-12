@@ -25,6 +25,6 @@ COPY --from=frontend /app/frontend/dist frontend/dist
 # предзагрузка весов OCR в образ (офлайн-запуск)
 RUN python scripts/download_models.py || true
 WORKDIR /app/backend
-RUN python manage.py migrate
 EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate && python -m waitress --listen=0.0.0.0:8000 --threads=4 dekanat.wsgi:application"]
+# миграции не хранятся в репозитории, поэтому генерируются при старте (при наличии файлов — "No changes detected")
+CMD ["sh", "-c", "python manage.py makemigrations documents --noinput && python manage.py migrate --noinput && python -m waitress --listen=0.0.0.0:8000 --threads=4 dekanat.wsgi:application"]

@@ -5,11 +5,13 @@ import hashlib
 import io
 import logging
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from django.core.files.base import ContentFile
 from django.db import connection, transaction
+from django.utils import timezone
 from PIL import Image, ImageDraw
 
 from dekanat_core import pipeline
@@ -19,7 +21,7 @@ from dekanat_core.layout.lines import group_lines
 from dekanat_core.models import DocumentResult
 from dekanat_core.preprocess.pipeline import map_bbox_back
 
-from .models import ProcessingResult, QuestionAnswer, UploadedDocument
+from .models import DocumentReview, ProcessingResult, Profile, QuestionAnswer, UploadedDocument
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +31,125 @@ MIME = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf", "web
 
 class ProcessingError(Exception):
     pass
+
+
+class ReviewError(Exception):
+    """Заявку нельзя создать (документ не обработан или уже отправлен)."""
+
+
+# ---------- профили и заявки ----------
+
+def owner_for(profile_id: str | None, telegram_user_id: str = "") -> Profile | None:
+    """Владелец загрузки: профиль из заголовка, иначе профиль с таким Telegram id (загрузка из бота)."""
+    if profile_id:
+        try:
+            p = Profile.objects.filter(pk=uuid.UUID(str(profile_id))).first()
+        except ValueError:
+            p = None
+        if p:
+            return p
+    if telegram_user_id:
+        return Profile.objects.filter(telegram_user_id=telegram_user_id).first()
+    return None
+
+
+def find_or_create_profile(role: str, name: str, telegram_user_id: str | None = None) -> tuple[Profile, bool]:
+    """Входа нет, поэтому «аккаунт» — это роль + имя: то же имя открывает прежний кабинет.
+    Если передан Telegram id, профиль ищется по нему, а профиль с тем же именем привязывается к аккаунту."""
+    name = " ".join(name.split())
+    profile = None
+    if telegram_user_id:
+        profile = Profile.objects.filter(telegram_user_id=telegram_user_id).first()
+    if profile is None:
+        profile = (Profile.objects.filter(role=role, name__iexact=name, telegram_user_id__isnull=True)
+                   .order_by("created_at").first())
+    created = profile is None
+    if created:
+        profile = Profile.objects.create(role=role, name=name, telegram_user_id=telegram_user_id)
+    else:
+        profile.role, profile.name = role, name
+        if telegram_user_id:
+            profile.telegram_user_id = telegram_user_id
+        profile.save(update_fields=["role", "name", "telegram_user_id"])
+    if profile.telegram_user_id:
+        link_profile(profile)
+    return profile, created
+
+
+def link_profile(profile: Profile) -> int:
+    """Привязывает к профилю ранние загрузки из бота с тем же Telegram id."""
+    if not profile.telegram_user_id:
+        return 0
+    return UploadedDocument.objects.filter(owner__isnull=True, telegram_user_id=profile.telegram_user_id).update(owner=profile)
+
+
+def _field_labels(result: dict) -> dict[str, str]:
+    return {k: (v.get("label") or k) for k, v in (result.get("fields") or {}).items()}
+
+
+def review_summary(doc: UploadedDocument) -> dict | None:
+    """Краткий анализ ИИ для деканата и готовые причины отказа."""
+    if doc.status != UploadedDocument.Status.DONE or not hasattr(doc, "result"):
+        return None
+    r = doc.result.result or {}
+    validation = r.get("validation") or {}
+    labels = _field_labels(r)
+    try:
+        rules = {k: f.rule for k, f in get_doc_type(doc.doc_type).field_map.items()}
+    except KeyError:
+        rules = {}
+    missing = [{"key": k, "label": labels.get(k, k), "rule": rules.get(k)} for k in validation.get("missing_fields") or []]
+    low_quality = bool(((r.get("quality") or {}).get("readability") or {}).get("low_quality"))
+    mismatch = r.get("type_mismatch") or None
+    doc_type_title = r.get("doc_type_title") or doc.doc_type
+
+    reasons: list[str] = []
+    for m in missing:
+        rule = f" (п. {m['rule']} Положения)" if m["rule"] else ""
+        reasons.append(f"Отсутствует обязательное поле «{m['label']}»{rule}")
+    if low_quality:
+        reasons.append("Снимок низкого качества: текст не читается, нужен скан или более чёткое фото")
+    if mismatch:
+        reasons.append(f"Загружен документ другого типа: похож на «{mismatch.get('detected_title') or mismatch.get('detected')}», "
+                       f"а не на «{doc_type_title}»")
+
+    if validation.get("status") == "document_ok":
+        sources = ", ".join(s.replace("rule:", "") for s in validation.get("sources") or [])
+        headline = f"Документ в порядке (пп. {sources})" if sources else "Документ в порядке"
+    else:
+        headline = "Не хватает полей: " + ", ".join(m["label"].lower() for m in missing) if missing else "Проверка не пройдена"
+    if low_quality:
+        headline = "Снимок низкого качества. " + headline
+
+    return {
+        "headline": headline,
+        "validation_status": validation.get("status"),
+        "validation_message": validation.get("message", ""),
+        "missing": missing,
+        "low_quality": low_quality,
+        "type_mismatch": mismatch,
+        "warnings": r.get("warnings") or [],
+        "suggested_reasons": reasons,
+    }
+
+
+def submit_for_review(doc: UploadedDocument, profile: Profile) -> DocumentReview:
+    if doc.status != UploadedDocument.Status.DONE:
+        raise ReviewError("Документ ещё не обработан")
+    if DocumentReview.objects.filter(document=doc).exists():
+        raise ReviewError("Документ уже отправлен в деканат")
+    if doc.owner_id is None:  # загружен до выбора роли
+        doc.owner = profile
+        doc.save(update_fields=["owner"])
+    return DocumentReview.objects.create(document=doc)
+
+
+def decide(review: DocumentReview, reviewer: Profile, status: str, comment: str = "", reason_source: str = "") -> DocumentReview:
+    review.status, review.reviewer = status, reviewer
+    review.comment, review.reason_source = comment.strip(), reason_source
+    review.decided_at, review.seen_by_dean = timezone.now(), True
+    review.save()
+    return review
 
 
 def doc_types_public() -> list[dict]:
@@ -45,7 +166,7 @@ PREVIEW_MAX_SIDE = 1400
 
 
 def _jpeg_preview(rgb: np.ndarray, max_side: int = PREVIEW_MAX_SIDE, quality: int = 82) -> bytes:
-    """Уменьшенный jpeg для просмотра в браузере и Mini App."""
+    """Уменьшенный jpeg для просмотра в браузере."""
     img = Image.fromarray(rgb)
     img.thumbnail((max_side, max_side), Image.LANCZOS)
     buf = io.BytesIO()
@@ -110,7 +231,7 @@ def _worker(doc_id, data, filename, doc_type):
 def _submit(doc_id, data, filename, doc_type) -> None:
     from django.conf import settings
 
-    # в тестах БД в памяти и другой поток её не видит, поэтому без потока
+    # в тестах TestCase держит всё в одной незакоммиченной транзакции, другой поток её не видит
     if getattr(settings, "DEKANAT_INLINE_WORKERS", False):
         run_processing(doc_id, data, filename, doc_type)
         return
@@ -119,7 +240,7 @@ def _submit(doc_id, data, filename, doc_type) -> None:
 
 def process_upload(data: bytes, filename: str, doc_type: str = "auto", *, source: str = "web",
                    telegram_user_id: str = "", question: str = "", check: bool = False,
-                   wait: bool = True) -> UploadedDocument:
+                   wait: bool = True, owner: Profile | None = None) -> UploadedDocument:
     """Создает документ и запускает обработку. wait=False - в фоне."""
     fmt = sniff_format(data)
     if fmt is None:
@@ -127,7 +248,7 @@ def process_upload(data: bytes, filename: str, doc_type: str = "auto", *, source
     doc = UploadedDocument(original_name=filename[:255], mime=MIME.get(fmt, "application/octet-stream"),
                            size=len(data), sha256=hashlib.sha256(data).hexdigest(),
                            selected_type=doc_type or "auto", source=source, telegram_user_id=telegram_user_id,
-                           pending_question=(question or "").strip(), pending_check=bool(check))
+                           owner=owner, pending_question=(question or "").strip(), pending_check=bool(check))
     doc.file.save(filename or f"document.{fmt}", ContentFile(data), save=False)
     doc.save()
     if wait:

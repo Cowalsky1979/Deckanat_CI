@@ -1,2 +1,3 @@
 -r backend.txt
 -r bot.txt
+pytest>=8

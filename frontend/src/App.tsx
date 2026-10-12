@@ -1,25 +1,83 @@
-import { Link, NavLink, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { MessageCircleMore, Moon, Search, ShieldCheck, Sun } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { LogOut, MessageCircleMore, Moon, ShieldCheck, Sun } from 'lucide-react'
 import { getTheme, setTheme, type Theme } from './theme'
 import { api } from './api'
+import { clearProfile, ROLE_TITLES, useProfile } from './profile'
 import UploadPage from './pages/UploadPage'
 import DocumentPage from './pages/DocumentPage'
 import RulesPage from './pages/RulesPage'
 import AboutPage from './pages/AboutPage'
+import CabinetPage from './pages/CabinetPage'
 
 // верхняя строка шапки с разделами
 const topNavCls = ({ isActive }: { isActive: boolean }) =>
-  `shrink-0 text-[15px] uppercase tracking-wide transition ${isActive ? 'text-ink-900' : 'text-ink-600 hover:text-ink-900'}`
+  `shrink-0 whitespace-nowrap text-[15px] uppercase tracking-wide transition ${isActive ? 'text-ink-900' : 'text-ink-600 hover:text-ink-900'}`
+
+// «Кабинет» с числом новых заявок для деканата
+function CabinetLink() {
+  const profile = useProfile()
+  const summary = useQuery({
+    queryKey: ['reviews', 'summary'],
+    queryFn: api.reviewSummary,
+    enabled: profile?.role === 'dean',
+    refetchInterval: 15000,
+  })
+  const unseen = profile?.role === 'dean' ? summary.data?.unseen ?? 0 : 0
+  return (
+    <NavLink to="/cabinet" className={topNavCls}>
+      <span className="inline-flex items-center gap-1.5">
+        Кабинет
+        {unseen > 0 && (
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-bold text-white normal-case tracking-normal">
+            {unseen}
+          </span>
+        )}
+      </span>
+    </NavLink>
+  )
+}
 
 function TopNavLinks() {
   return (
     <>
       <NavLink to="/" end className={topNavCls}>Студентам</NavLink>
+      <CabinetLink />
       <NavLink to="/rules" className={topNavCls}>Положение</NavLink>
       <NavLink to="/about" className={topNavCls}>О сервисе</NavLink>
     </>
+  )
+}
+
+// кто вошёл: роль, имя и выход
+function ProfileBadge() {
+  const profile = useProfile()
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  if (!profile) return null
+  return (
+    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <Link to="/cabinet" className="flex items-center gap-2 text-sm text-ink-700 hover:text-ink-900" title="Открыть кабинет">
+        <span className={`chip whitespace-nowrap ${profile.role === 'dean' ? 'border-sun-400 bg-sun-50 text-sun-900' : 'border-brand-300 bg-brand-50 text-brand-800'}`}>
+          {ROLE_TITLES[profile.role]}
+        </span>
+        <span className="hidden md:inline max-w-36 truncate">{profile.name}</span>
+      </Link>
+      <button
+        type="button"
+        onClick={() => {
+          clearProfile()
+          qc.clear()
+          navigate('/cabinet')
+        }}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-500 hover:text-ink-900 hover:bg-panel transition"
+        title="Выйти из кабинета"
+        aria-label="Выйти из кабинета"
+      >
+        <LogOut size={18} />
+      </button>
+    </div>
   )
 }
 
@@ -65,33 +123,6 @@ function ThemeToggle() {
   )
 }
 
-// вторая строка шапки: быстрый выбор типа документа
-function SubNav() {
-  const types = useQuery({ queryKey: ['doc-types'], queryFn: api.docTypes })
-  const { pathname } = useLocation()
-  const [params] = useSearchParams()
-  const current = pathname === '/' ? params.get('type') ?? 'auto' : null
-  const cls = (active: boolean) =>
-    `shrink-0 text-[15px] transition ${active ? 'text-ink-900' : 'text-ink-600 hover:text-ink-900'}`
-  return (
-    <nav className="tg-hide hidden sm:block border-b border-ink-200">
-      <div className="container-x h-[68px] flex items-center gap-8">
-        <div className="flex-1 min-w-0 flex items-center gap-8 overflow-x-auto no-scrollbar">
-          <Link to="/#upload" className={cls(current === 'auto')}>Автоопределение типа</Link>
-          {types.data?.map((t) => (
-            <Link key={t.key} to={`/?type=${t.key}#upload`} className={cls(current === t.key)}>
-              {t.title}
-            </Link>
-          ))}
-        </div>
-        <Link to="/rules?search=1" className="shrink-0 text-ink-700 hover:text-brand-600 transition" title="Поиск по Положению" aria-label="Поиск по Положению">
-          <Search size={26} strokeWidth={1.6} />
-        </Link>
-      </div>
-    </nav>
-  )
-}
-
 // прокрутка к якорю (#upload, #ask) после перехода, пункты Положения крутит сама RulesPage
 function ScrollToHash() {
   const { pathname, hash } = useLocation()
@@ -123,31 +154,31 @@ export default function App() {
     <div className="min-h-full flex flex-col">
       <ScrollToHash />
       <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-ink-200">
-        <div className="container-x h-[70px] flex items-center gap-6 lg:gap-10">
+        <div className="container-x h-[70px] flex items-center gap-4 lg:gap-8">
           <Logo />
-          <nav className="hidden sm:flex flex-1 min-w-0 items-center gap-6 lg:gap-8 overflow-x-auto no-scrollbar">
+          {/* разделы в одной строке только на широких экранах, иначе отдельной строкой ниже */}
+          <nav className="hidden lg:flex flex-1 min-w-0 items-center gap-6 xl:gap-8 overflow-x-auto no-scrollbar">
             <TopNavLinks />
           </nav>
-          <span className="flex-1 sm:hidden" />
-          <div className="tg-hide hidden xl:flex items-center gap-2 text-[15px] text-ink-400">
+          <span className="flex-1 lg:hidden" />
+          <div className="hidden 2xl:flex items-center gap-2 text-[15px] text-ink-400 shrink-0">
             <ShieldCheck size={18} /> Локально, без внешних API
           </div>
+          <ProfileBadge />
           <ThemeToggle />
           <Link
             to="/#upload"
-            className="tg-hide hidden sm:inline-flex h-12 items-center rounded-xl border border-brand-500 px-5 text-[15px] uppercase tracking-wide text-brand-600 hover:bg-brand-50 transition"
+            className="hidden xl:inline-flex h-12 shrink-0 items-center rounded-xl border border-brand-500 px-5 text-[15px] uppercase tracking-wide text-brand-600 hover:bg-brand-50 transition"
           >
             Проверить документ
           </Link>
         </div>
-        {/* на телефоне разделы отдельной строкой, иначе не влезают */}
-        <nav className="sm:hidden border-t border-ink-200">
+        <nav className="lg:hidden border-t border-ink-200">
           <div className="container-x h-12 flex items-center gap-6 overflow-x-auto no-scrollbar">
             <TopNavLinks />
           </div>
         </nav>
       </header>
-      <SubNav />
 
       <main className="flex-1 container-x py-8 sm:py-10">
         <Routes>
@@ -155,20 +186,21 @@ export default function App() {
           <Route path="/d/:id" element={<DocumentPage />} />
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/about" element={<AboutPage />} />
+          <Route path="/cabinet" element={<CabinetPage />} />
         </Routes>
       </main>
 
       {/* плавающая кнопка для вопроса */}
       <Link
         to={pathname.startsWith('/d/') ? '#ask' : '/#ask'}
-        className="tg-hide fixed bottom-6 right-6 z-30 hidden sm:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-brand-500 shadow-[0_8px_28px_rgba(35,35,35,0.14)] hover:scale-105 transition"
+        className="fixed bottom-6 right-6 z-30 hidden sm:inline-flex h-16 w-16 items-center justify-center rounded-full bg-surface text-brand-500 shadow-[0_8px_28px_rgba(35,35,35,0.14)] hover:scale-105 transition"
         title="Задать вопрос по документу"
         aria-label="Задать вопрос по документу"
       >
         <MessageCircleMore size={30} strokeWidth={2} />
       </Link>
 
-      <footer className="tg-hide bg-panel mt-10">
+      <footer className="bg-panel mt-10">
         <div className="container-x py-8 grid gap-4 sm:grid-cols-[1fr_auto] text-sm text-ink-500">
           <div>
             <div className="text-ink-800 font-medium">Предварительная проверка по учебному Положению.</div>

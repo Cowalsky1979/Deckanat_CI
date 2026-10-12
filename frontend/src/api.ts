@@ -1,4 +1,5 @@
 // Клиент REST API Django-бэкенда (/api/v1).
+import { getProfile, type Profile, type Role } from './profile'
 
 export type BBox = [number, number, number, number]
 
@@ -51,6 +52,38 @@ export interface QA {
   created_at: string
 }
 
+// ---------- кабинет ----------
+
+export interface ProfileShort {
+  id: string
+  role: Role
+  name: string
+}
+
+export type ReviewStatus = 'pending' | 'accepted' | 'rejected'
+
+export interface Review {
+  id: number
+  status: ReviewStatus
+  submitted_at: string
+  decided_at: string | null
+  reviewer: ProfileShort | null
+  comment: string
+  reason_source: 'ai' | 'manual' | ''
+  seen_by_dean: boolean
+}
+
+export interface AiSummary {
+  headline: string
+  validation_status: 'document_ok' | 'missing_fields' | null
+  validation_message: string
+  missing: { key: string; label: string; rule: string | null }[]
+  low_quality: boolean
+  type_mismatch: { detected: string; detected_title: string; score: number } | null
+  warnings: string[]
+  suggested_reasons: string[]
+}
+
 export interface Doc {
   id: string
   original_name: string
@@ -69,7 +102,29 @@ export interface Doc {
   result: DocResult | null
   questions: QA[]
   images: { original: string; original_preview: string; normalized: string; preview: string; annotated: string }
+  owner: ProfileShort | null
+  review: Review | null
+  ai_summary: AiSummary | null
   answer?: QA | null
+}
+
+// строка списка в кабинете (без полного результата OCR)
+export interface DocListItem {
+  id: string
+  original_name: string
+  doc_type: string
+  doc_type_title: string
+  status: 'processing' | 'done' | 'error'
+  error: string
+  source: string
+  created_at: string
+  validation_status: 'document_ok' | 'missing_fields' | null
+  missing_count: number
+  questions_count: number
+  last_answer: string | null
+  owner: ProfileShort | null
+  review: Review | null
+  ai_summary: AiSummary | null
 }
 
 export interface DocType {
@@ -92,7 +147,7 @@ async function handle<T>(r: Response): Promise<T> {
     let detail = `${r.status} ${r.statusText}`
     try {
       const j = await r.json()
-      detail = j.detail || JSON.stringify(j)
+      detail = j.detail || (j.comment && [j.comment].flat()[0]) || JSON.stringify(j)
     } catch {
       /* ignore */
     }
@@ -101,10 +156,24 @@ async function handle<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>
 }
 
+// все запросы идут с X-Profile-Id, если пользователь выбрал роль в кабинете
+function req<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  const p = getProfile()
+  if (p) headers.set('X-Profile-Id', p.id)
+  return fetch(`${BASE}${path}`, { ...init, headers }).then((r) => handle<T>(r))
+}
+
+const json = (body: unknown, method = 'POST'): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
 export const api = {
-  health: () => fetch(`${BASE}/health`).then((r) => handle<{ status: string; engines: Record<string, string> }>(r)),
-  docTypes: () => fetch(`${BASE}/doc-types`).then((r) => handle<DocType[]>(r)),
-  rules: () => fetch(`${BASE}/rules`).then((r) => handle<Rules>(r)),
+  health: () => req<{ status: string; engines: Record<string, string> }>('/health'),
+  docTypes: () => req<DocType[]>('/doc-types'),
+  rules: () => req<Rules>('/rules'),
   // async=1: сервер сразу отвечает 202, а статус потом опрашивает страница документа
   // (туннели рвут запросы дольше нескольких секунд)
   upload: (file: File, docType: string, question: string, check: boolean) => {
@@ -114,24 +183,25 @@ export const api = {
     if (question) fd.append('question', question)
     if (check) fd.append('check', 'true')
     fd.append('async', '1')
-    return fetch(`${BASE}/documents`, { method: 'POST', body: fd }).then((r) => handle<Doc>(r))
+    return req<Doc>('/documents', { method: 'POST', body: fd })
   },
-  get: (id: string) => fetch(`${BASE}/documents/${id}`).then((r) => handle<Doc>(r)),
-  ask: (id: string, question: string) =>
-    fetch(`${BASE}/documents/${id}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
-    }).then((r) => handle<QA>(r)),
-  check: (id: string) => fetch(`${BASE}/documents/${id}/check`, { method: 'POST' }).then((r) => handle<QA>(r)),
-  changeType: (id: string, docType: string) =>
-    fetch(`${BASE}/documents/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_type: docType }),
-    }).then((r) => handle<Doc>(r)),
+  get: (id: string) => req<Doc>(`/documents/${id}`),
+  ask: (id: string, question: string) => req<QA>(`/documents/${id}/ask`, json({ question })),
+  check: (id: string) => req<QA>(`/documents/${id}/check`, { method: 'POST' }),
+  changeType: (id: string, docType: string) => req<Doc>(`/documents/${id}`, json({ doc_type: docType }, 'PATCH')),
   exportUrl: (id: string) => `${BASE}/documents/${id}/export.json?download=1`,
   cropUrl: (id: string, key: string) => `${BASE}/documents/${id}/fields/${key}/crop.png`,
+
+  // кабинет
+  createProfile: (body: { role: Role; name: string }) => req<Profile>('/profiles', json(body)),
+  me: () => req<Profile>('/profiles/me'),
+  listDocuments: (params: { review?: 'pending' | 'decided' | 'all' } = {}) =>
+    req<DocListItem[]>(`/documents${params.review ? `?review=${params.review}` : ''}`),
+  submitReview: (id: string) => req<Review>(`/documents/${id}/submit`, { method: 'POST' }),
+  reviewSummary: () => req<{ pending: number; unseen: number }>('/reviews/summary'),
+  markSeen: (id: string) => req<Review>(`/documents/${id}/review/seen`, { method: 'POST' }),
+  decide: (id: string, body: { status: 'accepted' | 'rejected'; comment: string; reason_source: 'ai' | 'manual' | '' }) =>
+    req<Doc>(`/documents/${id}/review/decide`, json(body)),
 }
 
 export const SUGGESTED_QUESTIONS = [

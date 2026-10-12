@@ -10,7 +10,7 @@ interface Props {
 
 export default function FieldsTable({ fields, highlight, onSelect }: Props) {
   return (
-    <table className="w-full text-sm">
+    <table className="w-full text-sm break-words">
       <thead className="text-xs text-ink-500">
         <tr><th className="text-left font-medium pb-2">Поле</th><th className="text-left font-medium pb-2">Значение</th><th className="text-right font-medium pb-2">OCR</th></tr>
       </thead>
@@ -23,7 +23,7 @@ export default function FieldsTable({ fields, highlight, onSelect }: Props) {
                 <div className="font-medium">{f.label}</div>
                 <div className="text-[11px] text-ink-400">{f.key}</div>
               </td>
-              <td className="py-2 pr-2 align-top">
+              <td className="py-2 pr-2 align-top min-w-0 [overflow-wrap:anywhere]">
                 {f.kind === 'mark' ? (
                   f.found ? <span className="chip border-blue-300 bg-blue-50 text-blue-800"><Check size={12} /> есть</span>
                     : <span className="chip border-red-300 bg-red-50 text-red-800"><X size={12} /> отсутствует</span>

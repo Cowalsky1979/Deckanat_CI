@@ -19,7 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
-                           MenuButtonWebApp, Message, ReplyKeyboardMarkup, WebAppInfo)
+                           MenuButtonDefault, Message, ReplyKeyboardMarkup)
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -32,12 +32,13 @@ log = logging.getLogger("bot")
 router = Router()
 
 MAX_TG_FILE = 20 * 1024 * 1024
-# адрес Mini App меняется при переподключении туннеля, поэтому читаем его каждый раз:
-# сначала из файла от tunnel_keeper.py, потом из WEBAPP_URL
-_URL_FILE = Path(os.environ.get("WEBAPP_URL_FILE", Path(__file__).resolve().parents[1] / "runtime" / "webapp_url.txt"))
+# публичный адрес сайта меняется при переподключении туннеля, поэтому читаем его при каждом нажатии:
+# сначала из файла от tunnel_keeper.py, потом из SITE_URL (WEBAPP_URL - старое имя переменной)
+_URL_FILE = Path(os.environ.get("SITE_URL_FILE", Path(__file__).resolve().parents[1] / "runtime" / "site_url.txt"))
+SITE_BTN = "🌐 Открыть приложение"   # кнопка клавиатуры: присылает ссылку на сайт
 
 
-def webapp_url() -> str:
+def site_url() -> str:
     try:
         if _URL_FILE.exists():
             u = _URL_FILE.read_text(encoding="utf-8").strip()
@@ -45,17 +46,17 @@ def webapp_url() -> str:
                 return u.rstrip("/")
     except OSError:
         pass
-    return os.environ.get("WEBAPP_URL", "").rstrip("/")
+    return (os.environ.get("SITE_URL") or os.environ.get("WEBAPP_URL", "")).rstrip("/")
 
 
-WEBAPP_URL = webapp_url()  # для лога при старте
-
-
-def webapp_button(text: str = "🌐 Открыть приложение", path: str = "/") -> InlineKeyboardButton | None:
-    url = webapp_url()
+def site_button(text: str, path: str = "/") -> InlineKeyboardButton | None:
+    """Обычная ссылка на сайт, открывается в браузере."""
+    url = site_url()
     if not url:
         return None
-    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=f"{url}{path}"))
+    return InlineKeyboardButton(text=text, url=f"{url}{path}")
+
+
 COMPLETENESS_Q = "Содержит ли документ все обязательные сведения по Положению?"
 
 
@@ -70,9 +71,8 @@ def main_kb() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="🖼 Снимок с разметкой"), KeyboardButton(text="📝 Распознанный текст")],
         [KeyboardButton(text="📄 Новый документ"), KeyboardButton(text="📘 Положение")],
     ]
-    url = webapp_url()
-    if url:
-        rows.append([KeyboardButton(text="🌐 Открыть приложение", web_app=WebAppInfo(url=f"{url}/"))])
+    if site_url():
+        rows.append([KeyboardButton(text=SITE_BTN)])
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=rows)
 
 
@@ -103,9 +103,9 @@ async def quick_kb(doc_id: str | None = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⚖️ Кто принимает решение?", callback_data="q:decision")],
         [InlineKeyboardButton(text="📍 Показать поле на снимке", callback_data="q:fields")],
     ]
-    wb = webapp_button("🌐 Открыть документ в приложении", f"/d/{doc_id}" if doc_id else "/")
-    if wb:
-        rows.append([wb])
+    sb = site_button("🌐 Открыть документ на сайте", f"/d/{doc_id}" if doc_id else "/")
+    if sb:
+        rows.append([sb])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -137,10 +137,29 @@ async def on_error(event, *args, **kwargs):
 
 
 # команды
+def site_kb(doc_id: str | None = None) -> InlineKeyboardMarkup | None:
+    """Ссылки на сайт: главная, текущий документ, кабинет."""
+    if not site_url():
+        return None
+    rows = [[site_button("🌐 Открыть сайт", "/")]]
+    if doc_id:
+        rows.append([site_button("📄 Текущий документ на сайте", f"/d/{doc_id}")])
+    rows.append([site_button("👤 Кабинет студента / деканата", "/cabinet")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.message(CommandStart())
-async def cmd_start(m: Message, state: FSMContext):
+async def cmd_start(m: Message, state: FSMContext, bot: Bot):
     await state.clear()
+    # у старых чатов могла остаться кнопка меню «Приложение» (Mini App) - убираем её для этого чата
+    try:
+        await bot.set_chat_menu_button(chat_id=m.chat.id, menu_button=MenuButtonDefault())
+    except Exception:  # pragma: no cover
+        pass
     await m.answer(texts.WELCOME, reply_markup=main_kb())
+    kb = site_kb()
+    if kb:
+        await m.answer("Сайт с личным кабинетом (открывать через VPN):", reply_markup=kb)
 
 
 @router.message(Command("help"))
@@ -163,15 +182,15 @@ async def cmd_types(m: Message):
         f"• {t['title']} — раздел {t['rules_section']} Положения, {len(t['fields'])} полей" for t in types))
 
 
-@router.message(Command("app"))
-async def cmd_app(m: Message, state: FSMContext):
-    if not webapp_url():
-        await m.answer("Веб-приложение не настроено: запустите scripts/tunnel_keeper.py или задайте WEBAPP_URL в .env.")
-        return
+@router.message(Command("site"))
+@router.message(F.text == SITE_BTN)
+async def cmd_site(m: Message, state: FSMContext):
     data = await state.get_data()
-    path = f"/d/{data['doc_id']}" if data.get("doc_id") else "/"
-    text = "Открыть текущий документ в приложении:" if data.get("doc_id") else "Открыть веб-приложение «Онлайн-деканат»:"
-    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[webapp_button("🌐 Открыть приложение", path)]]))
+    kb = site_kb(data.get("doc_id"))
+    if not kb:
+        await m.answer("Адрес сайта не настроен: запустите scripts/tunnel_keeper.py или задайте SITE_URL в .env.")
+        return
+    await m.answer("Сайт «Онлайн-деканат» (открывать через VPN):", reply_markup=kb)
 
 
 @router.message(Command("rules"))
@@ -425,15 +444,10 @@ async def main():
     bot = Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    url = webapp_url()
-    if url:
-        # кнопка меню для Mini App, tunnel_keeper обновляет её при смене адреса
-        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Приложение", web_app=WebAppInfo(url=f"{url}/")))
-        log.info("Mini App: %s", url)
-    else:
-        from aiogram.types import MenuButtonDefault
-
-        await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+    # без кнопки меню: ссылку на сайт даёт кнопка «🌐 Открыть приложение» на клавиатуре и /site
+    await bot.delete_my_commands()
+    await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+    log.info("Сайт: %s", site_url() or "не настроен")
     log.info("Бот запущен; API: %s", api.API_BASE)
     await dp.start_polling(bot)
 

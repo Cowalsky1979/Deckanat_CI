@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, Loader2, RefreshCw, Search, Send, Upload } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, RefreshCw, Search, Send, Upload } from 'lucide-react'
 import { api, type Doc, type QA, SUGGESTED_QUESTIONS } from '../api'
-import { downloadFile, inTelegram } from '../telegram'
+import { useProfile } from '../profile'
 import ImageViewer from '../components/ImageViewer'
 import AnswerCard from '../components/AnswerCard'
 import FieldsTable from '../components/FieldsTable'
 import ValidationCard from '../components/ValidationCard'
+import ReviewCard from '../components/ReviewCard'
 
 type Tab = 'answer' | 'fields' | 'ocr'
 
@@ -21,6 +22,7 @@ export default function DocumentPage() {
   const [question, setQuestion] = useState('')
   const [history, setHistory] = useState<QA[]>([])
   const [variant, setVariant] = useState<'normalized' | 'original'>('normalized')
+  const profile = useProfile()
 
   // пока документ обрабатывается, опрашиваем статус
   const doc = useQuery({
@@ -67,6 +69,8 @@ export default function DocumentPage() {
 
   const last = history[history.length - 1]
   const result = doc.data?.result
+  // деканат смотрит заявку студента: загружать «другой документ» здесь не нужно
+  const reviewing = profile?.role === 'dean' && !!doc.data?.review
   const fields = useMemo(() => (result ? Object.values(result.fields) : []), [result])
 
   if (doc.isLoading) return <div className="flex items-center gap-2 text-ink-600"><Loader2 className="animate-spin" /> Загрузка…</div>
@@ -94,10 +98,10 @@ export default function DocumentPage() {
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1.05fr_1fr]">
       {/* ---------- снимок ---------- */}
-      <section className="card p-3 sm:p-4 lg:sticky lg:top-[86px] self-start">
+      <section className="card min-w-0 p-3 sm:p-4 lg:sticky lg:top-[86px] self-start">
         <div className="flex items-center justify-between gap-2 px-1 pb-2">
-          <div className="text-sm text-ink-600 truncate">{doc.data.original_name}</div>
-          <div className="flex gap-1 text-xs">
+          <div className="min-w-0 flex-1 text-sm text-ink-600 truncate">{doc.data.original_name}</div>
+          <div className="flex shrink-0 gap-1 text-xs">
             <button className={`chip ${variant === 'normalized' ? 'bg-brand-500 text-white border-brand-500' : 'border-ink-300'}`} onClick={() => setVariant('normalized')}>выровненный</button>
             <button className={`chip ${variant === 'original' ? 'bg-brand-500 text-white border-brand-500' : 'border-ink-300'}`} onClick={() => setVariant('original')}>исходный</button>
           </div>
@@ -120,7 +124,7 @@ export default function DocumentPage() {
       </section>
 
       {/* ---------- карточки ---------- */}
-      <section className="space-y-4">
+      <section className="min-w-0 space-y-4">
         <div className="card p-5">
           <div className="flex flex-wrap items-center gap-2">
             <div>
@@ -174,6 +178,8 @@ export default function DocumentPage() {
 
         <ValidationCard validation={result.validation} fields={result.fields} onSelect={setHighlight} />
 
+        <ReviewCard doc={doc.data} />
+
         <div className="card">
           <div role="tablist" className="flex gap-6 px-5 pt-4 border-b border-ink-200 overflow-x-auto no-scrollbar">
             {([['answer', 'Ответы'], ['fields', 'Карточка полей'], ['ocr', 'Распознанный текст']] as [Tab, string][]).map(([k, t]) => (
@@ -217,7 +223,7 @@ export default function DocumentPage() {
             {tab === 'fields' && <FieldsTable fields={result.fields} highlight={highlight} onSelect={setHighlight} docId={id} />}
             {tab === 'ocr' && (
               <div>
-                <pre className="whitespace-pre-wrap text-xs leading-5 bg-surface rounded-xl p-3 max-h-96 overflow-auto">{result.ocr_text}</pre>
+                <pre className="whitespace-pre-wrap [overflow-wrap:anywhere] text-xs leading-5 bg-surface rounded-xl p-3 max-h-96 overflow-auto">{result.ocr_text}</pre>
                 <div className="mt-2 text-xs text-ink-500">
                   OCR: {String((result.quality as { ocr?: { engines?: string[] } })?.ocr?.engines?.join(' + ') ?? '')} · предобработка:{' '}
                   {String(((result.quality as { steps?: string[] })?.steps ?? []).join(', ') || 'не требовалась')} · время:{' '}
@@ -229,13 +235,7 @@ export default function DocumentPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {inTelegram() ? (
-            <button className="btn-ghost" onClick={() => downloadFile(api.exportUrl(id), `${id}.json`)}>
-              <Download size={16} /> Скачать JSON
-            </button>
-          ) : (
-            <a className="btn-ghost" href={api.exportUrl(id)} download={`${id}.json`}><Download size={16} /> Скачать JSON</a>
-          )}
+          <a className="btn-ghost" href={api.exportUrl(id)} download={`${id}.json`}><Download size={16} /> Скачать JSON</a>
           <button
             className="btn-ghost"
             disabled={doc.isFetching}
@@ -248,7 +248,11 @@ export default function DocumentPage() {
             {doc.isFetching ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
             {doc.isFetching ? 'Обновляем…' : 'Обновить'}
           </button>
-          <button className="btn-primary ml-auto" onClick={() => navigate('/')}><Upload size={16} /> Другой документ</button>
+          {reviewing ? (
+            <Link to="/cabinet" className="btn-ghost ml-auto"><ArrowLeft size={16} /> К заявкам</Link>
+          ) : (
+            <button className="btn-primary ml-auto" onClick={() => navigate('/')}><Upload size={16} /> Другой документ</button>
+          )}
         </div>
       </section>
     </div>

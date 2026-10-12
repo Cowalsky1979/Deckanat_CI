@@ -1,4 +1,4 @@
-"""Удаление загруженных документов старше N дней (по умолчанию 1)."""
+"""Удаление анонимных загрузок старше N дней (по умолчанию 1). Документы из кабинета (с владельцем или заявкой) не трогаем."""
 import shutil
 from datetime import timedelta
 
@@ -17,7 +17,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         border = timezone.now() - timedelta(days=opts["days"])
-        qs = UploadedDocument.objects.filter(created_at__lt=border)
+        qs = UploadedDocument.objects.filter(created_at__lt=border, owner__isnull=True, review__isnull=True)
         n = 0
         for doc in qs:
             shutil.rmtree(settings.MEDIA_ROOT / "uploads" / str(doc.id), ignore_errors=True)

@@ -1,4 +1,21 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dekanat}
+      POSTGRES_USER: ${POSTGRES_USER:-dekanat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dekanat}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"    # для локального запуска бэкенда с компьютера (5433, чтобы не мешал локальный Postgres)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dekanat} -d ${POSTGRES_DB:-dekanat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -9,8 +26,12 @@ services:
       DJANGO_DEBUG: "0"
       DJANGO_ALLOWED_HOSTS: "*"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
+      DATABASE_URL: postgres://${POSTGRES_USER:-dekanat}:${POSTGRES_PASSWORD:-dekanat}@db:5432/${POSTGRES_DB:-dekanat}
     volumes:
       - media:/app/backend/media
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 30s
@@ -24,9 +45,9 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       API_BASE_URL: http://backend:8000
-      WEBAPP_URL: ${WEBAPP_URL:-}            # адрес Mini App из .env (если задаётся вручную)
+      SITE_URL: ${SITE_URL:-}                # публичный адрес сайта для кнопки «Сайт» (если задаётся вручную)
     volumes:
-      - ./runtime:/app/runtime:ro    # сюда tunnel_keeper пишет webapp_url.txt, бот берёт адрес без перезапуска
+      - ./runtime:/app/runtime:ro    # сюда tunnel_keeper пишет site_url.txt, бот берёт адрес без перезапуска
     depends_on:
       backend:
         condition: service_healthy
@@ -34,3 +55,4 @@ services:
 
 volumes:
   media:
+  pgdata:

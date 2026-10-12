@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+import dj_database_url
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -54,7 +56,9 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = "dekanat.wsgi.application"
 
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+# PostgreSQL (docker compose up -d db); для запуска без Docker можно указать sqlite:///путь
+DATABASES = {"default": dj_database_url.parse(
+    os.environ.get("DATABASE_URL", "postgres://dekanat:dekanat@localhost:5433/dekanat"), conn_max_age=60)}
 
 LANGUAGE_CODE = "ru-ru"
 TIME_ZONE = "Europe/Moscow"
@@ -80,6 +84,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [o for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o]
+CORS_ALLOW_HEADERS = [*default_headers, "x-profile-id"]   # идентификатор профиля кабинета
 CSRF_TRUSTED_ORIGINS = [o for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o]
 
 REST_FRAMEWORK = {
