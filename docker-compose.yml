@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
+    volumes:
+      - media:/app/backend/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      API_BASE_URL: http://backend:8000
+      WEBAPP_URL: ${WEBAPP_URL:-}            # адрес Mini App из .env (если задаётся вручную)
+    volumes:
+      - ./runtime:/app/runtime:ro    # сюда tunnel_keeper пишет webapp_url.txt, бот берёт адрес без перезапуска
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  media:
