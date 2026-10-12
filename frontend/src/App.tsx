@@ -1,7 +1,7 @@
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Moon, ShieldCheck, Sun } from 'lucide-react'
+import { LogOut, Moon, Sun } from 'lucide-react'
 import { getTheme, setTheme, type Theme } from './theme'
 import { api } from './api'
 import { clearProfile, ROLE_TITLES, useProfile } from './profile'
@@ -160,9 +160,6 @@ export default function App() {
             <TopNavLinks />
           </nav>
           <span className="flex-1 lg:hidden" />
-          <div className="hidden 2xl:flex items-center gap-2 text-[15px] text-ink-400 shrink-0">
-            <ShieldCheck size={18} /> Локально, без внешних API
-          </div>
           <ProfileBadge />
           <ThemeToggle />
           <Link
