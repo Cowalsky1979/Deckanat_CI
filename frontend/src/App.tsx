@@ -194,7 +194,7 @@ export default function App() {
           </div>
           <div className="sm:text-right">
             © 2026 Онлайн-деканат · учебный проект для кейса хакатона Банка «Центр-инвест».
-            <br />Не является сервисом банка.
+            
           </div>
         </div>
       </footer>
