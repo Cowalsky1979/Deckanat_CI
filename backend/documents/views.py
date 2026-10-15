@@ -14,14 +14,16 @@ from dekanat_core.rules.positions import load_positions
 
 from . import services
 from .identity import HEADER, current_profile, require_profile
-from .models import DocumentReview, Profile, UploadedDocument
+from .models import DocumentReview, Notification, Profile, UploadedDocument
 from .serializers import (AskSerializer, ChangeTypeSerializer, DecideSerializer, DocumentListSerializer,
-                          DocumentSerializer, ProfileCreateSerializer, ProfileSerializer, QuestionAnswerSerializer,
-                          ReviewSerializer, UploadSerializer)
+                          DocumentSerializer, FieldUpdateSerializer, NotificationSerializer, ProfileCreateSerializer,
+                          ProfileSerializer, QuestionAnswerSerializer, ReviewSerializer, UploadSerializer)
 
 
 def _doc(pk) -> UploadedDocument:
-    return get_object_or_404(UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer"), pk=pk)
+    return get_object_or_404(
+        UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer",
+                                                "parent", "parent__result", "parent__review"), pk=pk)
 
 
 class HealthView(APIView):
@@ -57,7 +59,8 @@ class DocumentListCreateView(APIView):
     def get(self, request):
         """Список для кабинета: студент видит свои документы, деканат - заявки (?review=pending|decided|all)."""
         profile = require_profile(request)
-        qs = UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer").prefetch_related("questions")
+        qs = (UploadedDocument.objects.select_related("result", "owner", "review", "review__reviewer", "parent", "parent__review")
+              .prefetch_related("questions", "revisions__review", "revisions__result"))
         if profile.role == Profile.Role.DEAN:
             mode = request.GET.get("review", "pending")
             if mode == "pending":
@@ -90,7 +93,8 @@ class DocumentListCreateView(APIView):
             doc = services.process_upload(data, f.name, ser.validated_data.get("doc_type") or "auto",
                                           source=ser.validated_data.get("source", "web"),
                                           telegram_user_id=tg_id, owner=owner,
-                                          question=q, check=check, wait=wait)
+                                          question=q, check=check, wait=wait,
+                                          parent=ser.validated_data.get("parent"))
         except services.ProcessingError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         if not wait:
@@ -125,6 +129,35 @@ class DocumentDetailView(APIView):
         doc = _doc(pk)
         doc.delete()
         return Response(status=204)
+
+
+class FieldUpdateView(APIView):
+    """Ручная правка текстового поля студентом: PATCH {"value": "..."}; пустое значение возвращает OCR."""
+
+    parser_classes = [JSONParser, FormParser]
+
+    @extend_schema(request=FieldUpdateSerializer, responses=DocumentSerializer)
+    def patch(self, request, pk, key):
+        doc = _doc(pk)
+        ser = FieldUpdateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            services.update_field(doc, key, ser.validated_data["value"], current_profile(request))
+        except services.FieldEditError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except KeyError as exc:
+            return Response({"detail": str(exc.args[0])}, status=400)
+        return Response(DocumentSerializer(_doc(pk), context={"request": request}).data)
+
+
+class DiffView(APIView):
+    """Что изменилось в исправленной версии по сравнению с прежней."""
+
+    def get(self, request, pk):
+        diff = services.field_diff(_doc(pk))
+        if diff is None:
+            return Response({"detail": "У документа нет прежней версии"}, status=404)
+        return Response(diff)
 
 
 class AskView(APIView):
@@ -190,6 +223,44 @@ class ReviewSummaryView(APIView):
         require_profile(request, Profile.Role.DEAN)
         pending = DocumentReview.objects.filter(status=DocumentReview.Status.PENDING)
         return Response({"pending": pending.count(), "unseen": pending.filter(seen_by_dean=False).count()})
+
+
+class ReviewsCsvView(APIView):
+    """Выгрузка заявок в CSV для деканата (?review=all|pending|decided)."""
+
+    def get(self, request):
+        require_profile(request, Profile.Role.DEAN)
+        mode = request.GET.get("review", "all")
+        body = services.reviews_csv(mode)
+        resp = HttpResponse(body.encode("utf-8"), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="reviews-{mode}.csv"'
+        return resp
+
+
+# ---------- уведомления для бота ----------
+
+def _check_bot_token(request) -> bool:
+    """Если задан DEKANAT_ADMIN_TOKEN, бот должен прислать его в X-Admin-Token."""
+    token = settings.DEKANAT_ADMIN_TOKEN
+    return not token or request.headers.get("X-Admin-Token", "") == token
+
+
+class NotificationsPendingView(APIView):
+    def get(self, request):
+        if not _check_bot_token(request):
+            return Response({"detail": "Нужен X-Admin-Token"}, status=403)
+        return Response(NotificationSerializer(services.pending_notifications(), many=True).data)
+
+
+class NotificationSentView(APIView):
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def post(self, request, pk):
+        if not _check_bot_token(request):
+            return Response({"detail": "Нужен X-Admin-Token"}, status=403)
+        n = get_object_or_404(Notification, pk=pk)
+        services.mark_notification_sent(n, str(request.data.get("error", "") or ""))
+        return Response({"id": n.id, "sent_at": n.sent_at})
 
 
 def _review(pk) -> DocumentReview:

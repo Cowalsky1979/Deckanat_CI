@@ -22,6 +22,8 @@ HELP = (
     "/type — сменить тип документа\n"
     "/rules — Положение\n"
     "/types — поддерживаемые типы документов\n"
+    "/submit — отправить текущий документ в деканат (решение придёт сюда сообщением)\n"
+    "/history — мои документы и решения деканата\n"
     "/site — ссылка на сайт (кабинет студента и деканата), то же — кнопка «🌐 Открыть приложение»\n\n"
     "После загрузки документа просто напишите вопрос, например: «Какова дата выдачи?», "
     "«Хватит ли справки для перевода?», «Есть ли печать?»."
@@ -32,16 +34,67 @@ NO_DOC = "Сначала пришлите документ (фото или фа
 
 LOW_CONF = 0.75
 
+# почему поле не найдено (missing_reason из ядра)
+MISSING_REASON = {
+    "label_not_found": "метка не распознана на снимке",
+    "empty_value": "в документе не заполнено",
+    "anchor_not_found": "надпись для отметки не найдена",
+    "mark_not_detected": "рядом с надписью нет отметки",
+}
+
+REVIEW_STATUS = {
+    "pending": "⏳ на рассмотрении",
+    "accepted": "✅ принято",
+    "rejected": "❌ отклонено",
+    "needs_fix": "✏️ нужно исправить",
+}
+
 
 def field_line(f: dict) -> str:
+    reason = MISSING_REASON.get(f.get("missing_reason") or "", "")
+    why = f" <i>({reason})</i>" if reason else ""
     if f["kind"] == "mark":
-        return f"{'✅' if f['found'] else '❌'} {escape(f['label'])}: {'есть' if f['found'] else 'отсутствует'}"
+        return f"{'✅' if f['found'] else '❌'} {escape(f['label'])}: {'есть' if f['found'] else 'отсутствует' + why}"
     if not f["found"]:
-        return f"⚠️ {escape(f['label'])}: <i>не найдено</i>"
+        return f"⚠️ {escape(f['label'])}: <i>не найдено</i>{why}"
     val = escape(str(f["value"]))
+    if f.get("source") == "manual":
+        ocr = escape(str(f.get("ocr_value") or "не найдено"))
+        return f"✏️ {escape(f['label'])}: <code>{val}</code> <i>(исправлено вручную, OCR: {ocr})</i>"
     if (f.get("confidence") or 0) < LOW_CONF:
         return f"❓ {escape(f['label'])}: <code>{val}</code> <i>(низкая уверенность OCR)</i>"
     return f"✅ {escape(f['label'])}: <code>{val}</code>"
+
+
+def review_line(review: dict | None) -> str:
+    if not review:
+        return "📨 В деканат не отправлен"
+    s = REVIEW_STATUS.get(review.get("status"), review.get("status", ""))
+    line = f"📨 Деканат: {s}"
+    if review.get("comment"):
+        line += f"\n💬 {escape(review['comment'])}"
+    return line
+
+
+def format_history(rows: list[dict]) -> str:
+    """Список документов студента для /history."""
+    if not rows:
+        return "Документов пока нет. Пришлите фото или файл, чтобы начать."
+    lines = ["<b>Мои документы</b> (последние сначала)", ""]
+    for i, d in enumerate(rows, 1):
+        date = (d.get("created_at") or "")[:16].replace("T", " ")
+        v = d.get("validation_status")
+        check = "✅ в порядке" if v == "document_ok" else (f"⚠️ не хватает полей: {d.get('missing_count', 0)}" if v else "⏳ обрабатывается")
+        rev = " · исправленная версия" if d.get("parent") else ""
+        lines.append(f"<b>{i}. {escape(d.get('doc_type_title') or d.get('doc_type') or 'Документ')}</b> · {date}{rev}")
+        lines.append(f"   {check}")
+        r = d.get("review")
+        if r:
+            s = REVIEW_STATUS.get(r.get("status"), r.get("status", ""))
+            lines.append(f"   📨 {s}" + (f": {escape(r['comment'])}" if r.get("comment") else ""))
+        lines.append("")
+    lines.append("Нажмите на номер документа, чтобы открыть его и задать вопросы.")
+    return "\n".join(lines)
 
 
 def format_document(doc: dict) -> str:
@@ -54,6 +107,8 @@ def format_document(doc: dict) -> str:
     lines += [field_line(f) for f in r["fields"].values()]
     v = r["validation"]
     lines += ["", ("✅ " if v["status"] == "document_ok" else "⚠️ ") + "<b>Предварительная проверка</b>", escape(v["message"])]
+    if doc.get("review"):
+        lines += ["", review_line(doc["review"])]
     extra = [w for w in (r.get("warnings") or []) if not w.startswith(("Снимок низкого качества", "Похоже, выбран"))]
     if extra:
         lines += ["", *("ℹ️ " + escape(w) for w in extra)]

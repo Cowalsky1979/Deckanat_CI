@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Camera, ChevronLeft, ChevronRight, FileUp, Loader2, Search, Sparkles } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, FileUp, GitCompareArrows, Loader2, Search, Sparkles, X } from 'lucide-react'
 import { api, SUGGESTED_QUESTIONS } from '../api'
 import HeroIllustration from '../components/HeroIllustration'
+import { fmtDate } from '../format'
 
 const MAX_MB = 20
 const STEPS = ['Загружаем файл…', 'Распознаём текст (OCR)…', 'Извлекаем поля…', 'Проверяем по Положению…']
@@ -83,7 +84,12 @@ export default function UploadPage() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const docType = params.get('type') ?? 'auto'
-  const setDocType = (t: string) => setParams(t === 'auto' ? {} : { type: t }, { replace: true, preventScrollReset: true })
+  // исправленная версия документа, который деканат вернул или отклонил (?parent=<id>)
+  const parentId = params.get('parent')
+  const parent = useQuery({ queryKey: ['doc', parentId], queryFn: () => api.get(parentId!), enabled: !!parentId })
+  const setDocType = (t: string) =>
+    setParams({ ...(t === 'auto' ? {} : { type: t }), ...(parentId ? { parent: parentId } : {}) }, { replace: true, preventScrollReset: true })
+  const dropParent = () => setParams(docType === 'auto' ? {} : { type: docType }, { replace: true, preventScrollReset: true })
   const [file, setFile] = useState<File | null>(null)
   const [question, setQuestion] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -113,7 +119,7 @@ export default function UploadPage() {
       setStep(0)
       const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1500)
       try {
-        return await api.upload(file, docType, check ? '' : question.trim(), check)
+        return await api.upload(file, docType, check ? '' : question.trim(), check, parentId)
       } finally {
         clearInterval(timer)
       }
@@ -134,7 +140,35 @@ export default function UploadPage() {
       />
 
       <section id="upload" className="mt-12 sm:mt-20 scroll-mt-28">
-        <h2 className="section-title">Проверить документ</h2>
+        <h2 className="section-title">{parentId ? 'Исправленная версия документа' : 'Проверить документ'}</h2>
+        {parentId && (
+          <div className="mt-5 rounded-2xl border border-brand-300 bg-brand-50 p-4 text-sm">
+            <div className="flex items-start gap-2">
+              <GitCompareArrows size={18} className="mt-0.5 shrink-0 text-brand-700" />
+              <div className="flex-1 min-w-0">
+                {parent.data ? (
+                  <>
+                    <div className="font-semibold text-ink-900">
+                      Новая версия документа «{parent.data.result?.doc_type_title ?? parent.data.doc_type}» от {fmtDate(parent.data.created_at)}
+                    </div>
+                    {parent.data.review?.comment && (
+                      <div className="mt-1 text-ink-800"><span className="font-medium">Замечание деканата: </span>{parent.data.review.comment}</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="font-semibold text-ink-900">Новая версия документа</div>
+                )}
+                <div className="mt-1 text-xs text-ink-600">
+                  Загрузите исправленный документ. После распознавания заявка автоматически уйдёт в деканат, а сотрудник увидит, что изменилось
+                  по сравнению с прежней версией.
+                </div>
+              </div>
+              <button type="button" className="shrink-0 text-ink-500 hover:text-ink-900" title="Загрузить как новый документ" onClick={dropParent}>
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
         <div role="tablist" aria-label="Тип документа" className="mt-7 flex gap-8 sm:gap-12 overflow-x-auto no-scrollbar border-b border-ink-200">
           {tabs.map(([key, title]) => (
             <button key={key} type="button" role="tab" aria-selected={docType === key} className="tab-upper" onClick={() => setDocType(key)}>

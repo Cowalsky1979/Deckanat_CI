@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, ChevronRight, Inbox, Loader2 } from 'lucide-react'
+import { Bot, ChevronRight, Download, Inbox, Loader2 } from 'lucide-react'
 import { api } from '../../api'
 import { fmtDate } from '../../format'
 import type { Profile } from '../../profile'
@@ -27,12 +27,22 @@ export default function DeanCabinet({ profile }: { profile: Profile }) {
         {summary.data && summary.data.unseen > 0 && <span className="ml-2 chip border-brand-500 bg-brand-500 text-white">новых: {summary.data.unseen}</span>}
       </p>
 
-      <div role="tablist" className="mt-6 flex gap-6 border-b border-ink-200">
-        {([['pending', 'Входящие'], ['decided', 'Обработанные']] as [Tab, string][]).map(([k, t]) => (
-          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="tab-upper">
-            {t}{k === 'pending' && summary.data ? ` (${summary.data.pending})` : ''}
-          </button>
-        ))}
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-3 border-b border-ink-200">
+        <div role="tablist" className="flex gap-6">
+          {([['pending', 'Входящие'], ['decided', 'Обработанные']] as [Tab, string][]).map(([k, t]) => (
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="tab-upper">
+              {t}{k === 'pending' && summary.data ? ` (${summary.data.pending})` : ''}
+            </button>
+          ))}
+        </div>
+        <a
+          href={api.exportCsvUrl('all')}
+          download="reviews.csv"
+          className="mb-2 inline-flex items-center gap-1.5 text-sm text-brand-700 hover:underline"
+          title="Все заявки: студент, тип, проверка ИИ, решение, комментарий (CSV для Excel)"
+        >
+          <Download size={14} /> Скачать журнал заявок (CSV)
+        </a>
       </div>
 
       <div className="mt-5 space-y-3">
@@ -55,6 +65,10 @@ export default function DeanCabinet({ profile }: { profile: Profile }) {
                     {fresh && <span className="h-2.5 w-2.5 rounded-full bg-brand-500" title="Новая заявка" />}
                     <span className="font-semibold text-ink-900">{d.owner?.name ?? 'Студент'}</span>
                     <span className="text-xs text-ink-500">· {d.doc_type_title} · {fmtDate(r.submitted_at)}</span>
+                    {d.parent && <span className="chip border-brand-300 bg-brand-50 text-brand-700" title="Студент прислал исправленную версию после замечания">исправленная версия</span>}
+                    {d.ai_summary && d.ai_summary.manual_fields.length > 0 && (
+                      <span className="chip border-orange-300 bg-orange-50 text-orange-800" title="Часть полей студент ввёл вручную">есть ручные правки</span>
+                    )}
                   </div>
                   {d.ai_summary && (
                     <div className="mt-1.5 flex items-start gap-1.5 text-sm text-ink-800">

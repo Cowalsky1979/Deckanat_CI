@@ -56,6 +56,8 @@ class UploadedDocument(models.Model):
     source = models.CharField(max_length=16, choices=Source.choices, default=Source.WEB)
     telegram_user_id = models.CharField(max_length=32, blank=True, db_index=True)
     owner = models.ForeignKey(Profile, null=True, blank=True, on_delete=models.SET_NULL, related_name="documents")
+    # исправленная версия: ссылка на документ, который деканат вернул на доработку или отклонил
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="revisions")
     timings = models.JSONField(default=dict, blank=True)
     pending_question = models.TextField(blank=True)      # вопрос, который пришел вместе с файлом
     pending_check = models.BooleanField(default=False)   # проверка без вопроса сразу после загрузки
@@ -109,6 +111,7 @@ class DocumentReview(models.Model):
         PENDING = "pending", "на рассмотрении"
         ACCEPTED = "accepted", "принято"
         REJECTED = "rejected", "отклонено"
+        NEEDS_FIX = "needs_fix", "нужно исправить"
 
     class ReasonSource(models.TextChoices):
         AI = "ai", "причина от ИИ"
@@ -130,3 +133,23 @@ class DocumentReview(models.Model):
 
     def __str__(self):
         return f"{self.document_id} {self.status}"
+
+
+class Notification(models.Model):
+    """Очередь сообщений для Telegram: бэкенд кладёт, бот забирает и отправляет."""
+
+    telegram_user_id = models.CharField(max_length=32, db_index=True)
+    document = models.ForeignKey(UploadedDocument, null=True, blank=True, on_delete=models.CASCADE, related_name="notifications")
+    kind = models.CharField(max_length=32, blank=True)      # review_decided и т. п.
+    text = models.TextField()                                # HTML для Telegram
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "уведомление"
+        verbose_name_plural = "уведомления"
+
+    def __str__(self):
+        return f"{self.telegram_user_id} {self.kind} {'sent' if self.sent_at else 'pending'}"

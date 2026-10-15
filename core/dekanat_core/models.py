@@ -6,6 +6,19 @@ from typing import Any, Optional
 
 NOT_FOUND = "не найдено"
 
+# почему поле не найдено (для честного объяснения пользователю, п. 2.2)
+MISSING_LABEL = "label_not_found"      # метку поля не удалось распознать на снимке
+MISSING_EMPTY = "empty_value"          # метка есть, значение в документе не заполнено
+MISSING_ANCHOR = "anchor_not_found"    # надпись «Подпись»/«М.П.» не найдена
+MISSING_MARK = "mark_not_detected"     # надпись есть, графической отметки рядом нет
+
+MISSING_REASON_TEXT = {
+    MISSING_LABEL: "метка поля не распознана на снимке",
+    MISSING_EMPTY: "в документе поле не заполнено",
+    MISSING_ANCHOR: "надпись для отметки не найдена",
+    MISSING_MARK: "рядом с надписью нет графической отметки",
+}
+
 BBox = tuple[int, int, int, int]  # x1, y1, x2, y2 в пикселях нормализованного изображения
 
 
@@ -43,6 +56,13 @@ class FieldValue:
     confidence: float = 0.0
     found: bool = False             # поле заполнено или отметка есть
     kind: str = "text"              # text | mark
+    source: str = "ocr"             # ocr | manual (значение исправлено пользователем)
+    ocr_value: Any = None           # что распознал OCR, если значение исправлено вручную
+    missing_reason: Optional[str] = None   # см. MISSING_* (только для found=False)
+
+    @property
+    def is_manual(self) -> bool:
+        return self.source == "manual"
 
     def to_dict(self) -> dict:
         return to_jsonable(asdict(self))
@@ -99,9 +119,20 @@ class DocumentResult:
     type_candidates: list[dict] = field(default_factory=list)
     type_mismatch: Optional[dict] = None     # заполняется, если выбран не тот тип
 
-    def fields_plain(self) -> dict[str, Any]:
-        """Поля в формате results.json."""
-        return {k: v.value for k, v in self.fields.items()}
+    def fields_plain(self, *, ocr_only: bool = False) -> dict[str, Any]:
+        """Поля в формате results.json. ocr_only=True отдаёт то, что распознал OCR, без ручных правок."""
+        return {k: (v.ocr_value if ocr_only and v.is_manual else v.value) for k, v in self.fields.items()}
+
+    def ocr_fields(self) -> dict[str, "FieldValue"]:
+        """Поля без ручных правок (как после распознавания)."""
+        out = {}
+        for k, v in self.fields.items():
+            if v.is_manual:
+                v = FieldValue(**{**asdict(v), "value": v.ocr_value, "source": "ocr", "ocr_value": None,
+                                  "found": v.ocr_value not in (None, NOT_FOUND),
+                                  "missing_reason": v.missing_reason if v.ocr_value in (None, NOT_FOUND) else None})
+            out[k] = v
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> "DocumentResult":

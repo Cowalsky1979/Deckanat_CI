@@ -65,10 +65,35 @@ class Flow(StatesGroup):
     ready = State()
 
 
+HISTORY_BTN = "📂 Мои документы"
+SUBMIT_BTN = "📨 Отправить в деканат"
+
+# профили кабинета по Telegram id (создаются на бэкенде один раз, здесь только кэш)
+_profiles: dict[str, str] = {}
+
+
+async def profile_id(user, *, refresh: bool = False) -> str | None:
+    """Профиль студента, привязанный к Telegram-аккаунту: загрузки попадают в кабинет, решения приходят в чат.
+    refresh=True пересоздаёт профиль (например, базу очистили, и закэшированный id больше не существует)."""
+    uid = str(user.id)
+    if refresh:
+        _profiles.pop(uid, None)
+    if uid in _profiles:
+        return _profiles[uid]
+    try:
+        p = await api.ensure_profile(user.full_name or user.username or "", uid)
+    except (api.ApiError, httpx.HTTPError) as exc:
+        log.warning("Не удалось создать профиль для %s: %s", uid, exc)
+        return None
+    _profiles[uid] = p["id"]
+    return p["id"]
+
+
 def main_kb() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="✅ Проверить комплектность"), KeyboardButton(text="🗂 Карточка полей")],
         [KeyboardButton(text="🖼 Снимок с разметкой"), KeyboardButton(text="📝 Распознанный текст")],
+        [KeyboardButton(text=SUBMIT_BTN), KeyboardButton(text=HISTORY_BTN)],
         [KeyboardButton(text="📄 Новый документ"), KeyboardButton(text="📘 Положение")],
     ]
     if site_url():
@@ -102,6 +127,7 @@ async def quick_kb(doc_id: str | None = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="✅ Проверить комплектность", callback_data="q:check")],
         [InlineKeyboardButton(text="⚖️ Кто принимает решение?", callback_data="q:decision")],
         [InlineKeyboardButton(text="📍 Показать поле на снимке", callback_data="q:fields")],
+        [InlineKeyboardButton(text="📨 Отправить в деканат", callback_data="q:submit")],
     ]
     sb = site_button("🌐 Открыть документ на сайте", f"/d/{doc_id}" if doc_id else "/")
     if sb:
@@ -111,7 +137,7 @@ async def quick_kb(doc_id: str | None = None) -> InlineKeyboardMarkup:
 
 # ошибки
 @router.errors()
-async def on_error(event, *args, **kwargs):
+async def on_error(event, state: FSMContext | None = None, **kwargs):
     """При любой ошибке пишем пользователю, чтобы бот не молчал."""
     exc = event.exception
     log.exception("Ошибка обработчика: %s", exc)
@@ -123,7 +149,15 @@ async def on_error(event, *args, **kwargs):
         msg = upd.callback_query.message
     if msg is None:
         return True
-    if isinstance(exc, api.ApiError):
+    if isinstance(exc, api.ApiError) and exc.status == 404:
+        # текущий документ удалили на сервере (например, очистили базу): сбрасываем состояние
+        if state is not None:
+            try:
+                await state.clear()
+            except Exception:  # pragma: no cover
+                pass
+        text = "ℹ️ Этот документ больше недоступен на сервере. Пришлите документ заново (/new)."
+    elif isinstance(exc, api.ApiError):
         text = f"❌ {exc}"
     elif isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
         text = "❌ Сервис распознавания сейчас недоступен (бэкенд не отвечает). Попробуйте через минуту."
@@ -265,6 +299,88 @@ async def cmd_type(m: Message, state: FSMContext):
     await m.answer("Выберите тип документа:", reply_markup=await types_kb("retype"))
 
 
+# ---------- кабинет: отправка в деканат и история ----------
+
+async def with_profile(user, call):
+    """Вызывает call(profile_id); если бэкенд не узнал профиль (403), пересоздаёт его и повторяет один раз."""
+    pid = await profile_id(user)
+    if not pid:
+        raise api.ApiError("Кабинет недоступен: бэкенд не отвечает. Попробуйте позже.")
+    try:
+        return await call(pid)
+    except api.ApiError as exc:
+        if exc.status != 403:
+            raise
+        pid = await profile_id(user, refresh=True)
+        if not pid:
+            raise
+        return await call(pid)
+
+
+async def _submit_current(m: Message, state: FSMContext, user) -> None:
+    data = await _current(m, state)
+    if not data:
+        return
+    doc_id = data["doc_id"]
+    doc = await api.get(doc_id)
+    v = (doc.get("result") or {}).get("validation") or {}
+    try:
+        await with_profile(user, lambda pid: api.submit(doc_id, pid))
+    except api.ApiError as exc:
+        await m.answer(f"ℹ️ {exc}")
+        return
+    warn = ""
+    if v.get("status") == "missing_fields":
+        labels = [f["label"] for k, f in (doc["result"]["fields"] or {}).items() if k in (v.get("missing_fields") or [])]
+        warn = ("\n\n⚠️ По предварительной проверке не хватает: " + ", ".join(labels) +
+                ". Деканат может вернуть документ на доработку.")
+    kb = site_kb(doc_id)
+    await m.answer("📨 <b>Документ отправлен в деканат.</b>\nРешение (принято, отклонено или нужно исправить) придёт "
+                   "сюда сообщением; его же видно в кабинете на сайте." + warn, reply_markup=kb)
+
+
+@router.message(Command("submit"))
+@router.message(F.text == SUBMIT_BTN)
+async def cmd_submit(m: Message, state: FSMContext):
+    await _submit_current(m, state, m.from_user)
+
+
+def history_kb(rows: list[dict]) -> InlineKeyboardMarkup | None:
+    buttons = [InlineKeyboardButton(text=str(i), callback_data=f"hist:{d['id']}") for i, d in enumerate(rows, 1)]
+    if not buttons:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[buttons[i:i + 5] for i in range(0, len(buttons), 5)])
+
+
+@router.message(Command("history"))
+@router.message(F.text == HISTORY_BTN)
+async def cmd_history(m: Message):
+    rows = await with_profile(m.from_user, lambda pid: api.list_documents(pid, limit=10))
+    for part in texts.split_message(texts.format_history(rows)):
+        await m.answer(part)
+    kb = history_kb(rows)
+    if kb:
+        await m.answer("Открыть документ:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hist:"))
+async def on_history_open(cq: CallbackQuery, state: FSMContext):
+    doc_id = cq.data.split(":", 1)[1]
+    await cq.answer()
+    try:
+        doc = await api.get(doc_id)
+    except api.ApiError as exc:
+        await cq.message.answer(f"❌ {exc}")
+        return
+    if doc.get("status") != "done" or not doc.get("result"):
+        await cq.message.answer("Документ ещё обрабатывается или не был распознан.")
+        return
+    await state.set_state(Flow.ready)
+    await state.update_data(doc_id=doc["id"], fields=doc["result"]["fields"], pending_file=None)
+    await cq.message.answer(texts.format_document(doc), reply_markup=main_kb())
+    await cq.message.answer("Задайте вопрос о документе или выберите действие:", reply_markup=await quick_kb(doc["id"]))
+
+
 # загрузка файла
 @router.message(F.photo | F.document)
 async def on_file(m: Message, state: FSMContext, bot: Bot):
@@ -311,10 +427,11 @@ async def on_type_chosen(cq: CallbackQuery, state: FSMContext, bot: Bot):
     status = await cq.message.answer("⏳ Распознаю документ…")
     await bot.send_chat_action(cq.message.chat.id, ChatAction.TYPING)
     question = data.get("pending_question", "")
+    pid = await profile_id(cq.from_user)
     try:
         # грузим с async и опрашиваем статус, туннель рвет долгие запросы
         doc = await api.upload(data["pending_file"], data["pending_name"], doc_type, question,
-                               user_id=str(cq.from_user.id), wait=False)
+                               user_id=str(cq.from_user.id), wait=False, profile_id=pid)
         for i in range(90):
             if doc.get("status") != "processing":
                 break
@@ -398,6 +515,9 @@ async def on_quick(cq: CallbackQuery, state: FSMContext):
         doc = await api.get(data["doc_id"])
         await cq.message.answer("Какое поле показать?", reply_markup=fields_kb(doc))
         return
+    if action == "submit":
+        await _submit_current(cq.message, state, cq.from_user)
+        return
     q = COMPLETENESS_Q if action == "check" else "Кто принимает окончательное решение о принятии документа?"
     qa = await api.ask(data["doc_id"], q)
     await _send_answer(cq.message, qa, data["fields"], data["doc_id"])
@@ -436,8 +556,44 @@ async def on_question(m: Message, state: FSMContext, bot: Bot):
     await _send_answer(m, qa, data["fields"], data["doc_id"])
 
 
+# ---------- уведомления о решениях деканата ----------
+
+NOTIFY_INTERVAL = float(os.environ.get("NOTIFY_INTERVAL", "4"))
+
+
+async def notify_loop(bot: Bot):
+    """Забирает из бэкенда очередь уведомлений и шлёт их студентам в Telegram."""
+    api_down = False
+    while True:
+        try:
+            items = await api.pending_notifications()
+            if api_down:
+                log.info("Очередь уведомлений снова доступна")
+                api_down = False
+        except (api.ApiError, httpx.HTTPError) as exc:
+            if not api_down:
+                log.warning("Очередь уведомлений недоступна: %s", exc)
+                api_down = True
+            items = []
+        for n in items:
+            doc_id = n.get("document_id")
+            kb = site_kb(str(doc_id)) if doc_id else None
+            error = ""
+            try:
+                await bot.send_message(int(n["telegram_user_id"]), n["text"], reply_markup=kb)
+            except Exception as exc:  # чат заблокировал бота, неверный id и т. п.: помечаем, чтобы не слать вечно
+                error = str(exc)
+                log.warning("Не удалось отправить уведомление %s пользователю %s: %s", n["id"], n["telegram_user_id"], exc)
+            try:
+                await api.notification_sent(n["id"], error)
+            except (api.ApiError, httpx.HTTPError) as exc:
+                log.warning("Не удалось отметить уведомление %s: %s", n["id"], exc)
+        await asyncio.sleep(NOTIFY_INTERVAL)
+
+
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)   # иначе опрос очереди уведомлений пишет строку каждые 4 с
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise SystemExit("Укажите BOT_TOKEN в окружении или .env")
@@ -449,7 +605,11 @@ async def main():
     await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
     log.info("Сайт: %s", site_url() or "не настроен")
     log.info("Бот запущен; API: %s", api.API_BASE)
-    await dp.start_polling(bot)
+    notifier = asyncio.create_task(notify_loop(bot))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        notifier.cancel()
 
 
 if __name__ == "__main__":

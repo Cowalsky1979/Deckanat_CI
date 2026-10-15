@@ -3,6 +3,16 @@ import { getProfile, type Profile, type Role } from './profile'
 
 export type BBox = [number, number, number, number]
 
+// почему поле не найдено (из ядра)
+export type MissingReason = 'label_not_found' | 'empty_value' | 'anchor_not_found' | 'mark_not_detected'
+
+export const MISSING_REASON_TEXT: Record<MissingReason, string> = {
+  label_not_found: 'метка поля не распознана на снимке',
+  empty_value: 'в документе поле не заполнено',
+  anchor_not_found: 'надпись для отметки не найдена',
+  mark_not_detected: 'рядом с надписью нет графической отметки',
+}
+
 export interface FieldValue {
   key: string
   label: string
@@ -13,6 +23,9 @@ export interface FieldValue {
   confidence: number
   found: boolean
   kind: 'text' | 'mark'
+  source: 'ocr' | 'manual'
+  ocr_value: string | null
+  missing_reason: MissingReason | null
 }
 
 export interface Validation {
@@ -60,7 +73,8 @@ export interface ProfileShort {
   name: string
 }
 
-export type ReviewStatus = 'pending' | 'accepted' | 'rejected'
+export type ReviewStatus = 'pending' | 'accepted' | 'rejected' | 'needs_fix'
+export type Decision = 'accepted' | 'rejected' | 'needs_fix'
 
 export interface Review {
   id: number
@@ -77,11 +91,49 @@ export interface AiSummary {
   headline: string
   validation_status: 'document_ok' | 'missing_fields' | null
   validation_message: string
-  missing: { key: string; label: string; rule: string | null }[]
+  missing: { key: string; label: string; rule: string | null; reason: MissingReason | null; reason_text: string }[]
   low_quality: boolean
   type_mismatch: { detected: string; detected_title: string; score: number } | null
   warnings: string[]
+  manual_fields: { key: string; label: string; value: string; ocr_value: string | null }[]
+  is_revision: boolean
   suggested_reasons: string[]
+}
+
+// другая версия документа: прежняя (parent) или исправленная (revisions)
+export interface RevisionShort {
+  id: string
+  original_name: string
+  doc_type: string
+  doc_type_title: string
+  status: 'processing' | 'done' | 'error'
+  created_at: string
+  review_status: ReviewStatus | null
+  review_comment: string
+}
+
+export interface DiffRow {
+  key: string
+  label: string
+  kind: 'text' | 'mark'
+  before: string
+  after: string
+  changed: boolean
+  fixed: boolean
+  manual: boolean
+}
+
+export interface Diff {
+  parent_id: string
+  parent_created_at: string
+  parent_review_status: ReviewStatus | null
+  parent_review_comment: string
+  before_status: 'document_ok' | 'missing_fields' | null
+  after_status: 'document_ok' | 'missing_fields' | null
+  before_missing: string[]
+  after_missing: string[]
+  changed_count: number
+  rows: DiffRow[]
 }
 
 export interface Doc {
@@ -105,6 +157,8 @@ export interface Doc {
   owner: ProfileShort | null
   review: Review | null
   ai_summary: AiSummary | null
+  parent: RevisionShort | null
+  revisions: RevisionShort[]
   answer?: QA | null
 }
 
@@ -125,6 +179,8 @@ export interface DocListItem {
   owner: ProfileShort | null
   review: Review | null
   ai_summary: AiSummary | null
+  parent: RevisionShort | null
+  revisions: RevisionShort[]
 }
 
 export interface DocType {
@@ -176,16 +232,20 @@ export const api = {
   rules: () => req<Rules>('/rules'),
   // async=1: сервер сразу отвечает 202, а статус потом опрашивает страница документа
   // (туннели рвут запросы дольше нескольких секунд)
-  upload: (file: File, docType: string, question: string, check: boolean) => {
+  upload: (file: File, docType: string, question: string, check: boolean, parent?: string | null) => {
     const fd = new FormData()
     fd.append('file', file)
     fd.append('doc_type', docType)
     if (question) fd.append('question', question)
     if (check) fd.append('check', 'true')
+    if (parent) fd.append('parent', parent)   // исправленная версия прежнего документа
     fd.append('async', '1')
     return req<Doc>('/documents', { method: 'POST', body: fd })
   },
   get: (id: string) => req<Doc>(`/documents/${id}`),
+  // ручная правка текстового поля; пустая строка возвращает значение OCR
+  updateField: (id: string, key: string, value: string) => req<Doc>(`/documents/${id}/fields/${key}`, json({ value }, 'PATCH')),
+  diff: (id: string) => req<Diff>(`/documents/${id}/diff`),
   ask: (id: string, question: string) => req<QA>(`/documents/${id}/ask`, json({ question })),
   check: (id: string) => req<QA>(`/documents/${id}/check`, { method: 'POST' }),
   changeType: (id: string, docType: string) => req<Doc>(`/documents/${id}`, json({ doc_type: docType }, 'PATCH')),
@@ -200,8 +260,11 @@ export const api = {
   submitReview: (id: string) => req<Review>(`/documents/${id}/submit`, { method: 'POST' }),
   reviewSummary: () => req<{ pending: number; unseen: number }>('/reviews/summary'),
   markSeen: (id: string) => req<Review>(`/documents/${id}/review/seen`, { method: 'POST' }),
-  decide: (id: string, body: { status: 'accepted' | 'rejected'; comment: string; reason_source: 'ai' | 'manual' | '' }) =>
+  decide: (id: string, body: { status: Decision; comment: string; reason_source: 'ai' | 'manual' | '' }) =>
     req<Doc>(`/documents/${id}/review/decide`, json(body)),
+  // ссылка на скачивание: заголовок не передать, поэтому профиль идёт параметром
+  exportCsvUrl: (mode: 'all' | 'pending' | 'decided') =>
+    `${BASE}/reviews/export.csv?review=${mode}&profile_id=${getProfile()?.id ?? ''}`,
 }
 
 export const SUGGESTED_QUESTIONS = [

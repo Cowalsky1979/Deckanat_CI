@@ -27,6 +27,7 @@ services:
       DJANGO_ALLOWED_HOSTS: "*"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
       DATABASE_URL: postgres://${POSTGRES_USER:-dekanat}:${POSTGRES_PASSWORD:-dekanat}@db:5432/${POSTGRES_DB:-dekanat}
+      DEKANAT_ADMIN_TOKEN: ${DEKANAT_ADMIN_TOKEN:-}   # защищает очередь уведомлений для бота (можно не задавать)
     volumes:
       - media:/app/backend/media
     depends_on:
@@ -46,6 +47,8 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       API_BASE_URL: http://backend:8000
       SITE_URL: ${SITE_URL:-}                # публичный адрес сайта для кнопки «Сайт» (если задаётся вручную)
+      DEKANAT_ADMIN_TOKEN: ${DEKANAT_ADMIN_TOKEN:-}
+      NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-4}
     volumes:
       - ./runtime:/app/runtime:ro    # сюда tunnel_keeper пишет site_url.txt, бот берёт адрес без перезапуска
     depends_on:

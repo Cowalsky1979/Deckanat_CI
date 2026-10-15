@@ -8,7 +8,7 @@ import numpy as np
 
 from ..config.schema import FieldSpec
 from ..layout.lines import TextLine
-from ..models import BBox, FieldValue
+from ..models import MISSING_ANCHOR, MISSING_MARK, BBox, FieldValue
 from ..settings import get_settings
 from ..extract.extractor import anchor_bbox, find_anchor_line
 
@@ -197,5 +197,6 @@ def detect_marks(rgb: np.ndarray, lines: list[TextLine], specs: list[FieldSpec])
             bbox=det.bbox or (anchor.bbox if anchor else None),
             label_bbox=anchor.bbox if anchor else None,
             confidence=round(det.score, 3), found=bool(det.present), kind="mark",
+            missing_reason=None if det.present else (MISSING_MARK if anchor is not None else MISSING_ANCHOR),
         )
     return out

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DocumentReview, ProcessingResult, Profile, QuestionAnswer, UploadedDocument
+from .models import DocumentReview, Notification, ProcessingResult, Profile, QuestionAnswer, UploadedDocument
 
 
 class QAInline(admin.TabularInline):
@@ -35,3 +35,9 @@ class DocumentReviewAdmin(admin.ModelAdmin):
 class ProcessingResultAdmin(admin.ModelAdmin):
     list_display = ["document", "updated_at"]
     readonly_fields = ["result", "transform", "original_size"]
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ["telegram_user_id", "kind", "document", "created_at", "sent_at"]
+    list_filter = ["kind"]

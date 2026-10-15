@@ -11,11 +11,11 @@ HEADER = "X-Profile-Id"
 
 
 def current_profile(request) -> Profile | None:
-    """Профиль из заголовка; неизвестный или кривой id считается анонимом."""
+    """Профиль из заголовка (или ?profile_id= для ссылок на скачивание); неизвестный id считается анонимом."""
     if hasattr(request, "_profile"):
         return request._profile
     profile = None
-    raw = request.headers.get(HEADER, "")
+    raw = request.headers.get(HEADER, "") or request.GET.get("profile_id", "")
     try:
         profile = Profile.objects.filter(pk=uuid.UUID(raw)).first() if raw else None
     except ValueError:

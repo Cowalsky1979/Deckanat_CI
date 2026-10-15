@@ -7,7 +7,7 @@ from rapidfuzz import fuzz
 
 from ..config.schema import DocTypeConfig, FieldSpec
 from ..layout.lines import TextLine, split_label_value
-from ..models import NOT_FOUND, FieldValue
+from ..models import MISSING_EMPTY, MISSING_LABEL, NOT_FOUND, FieldValue
 from ..settings import get_settings
 from . import normalizers as nz
 
@@ -99,20 +99,22 @@ def extract_text_fields(cfg: DocTypeConfig, lines: list[TextLine]) -> dict[str, 
     for fi, spec in enumerate(cfg.text_fields):
         if fi not in assigned:
             result[spec.key] = FieldValue(key=spec.key, label=spec.label, value=NOT_FOUND, raw="",
-                                          confidence=0.0, found=False, kind="text")
+                                          confidence=0.0, found=False, kind="text", missing_reason=MISSING_LABEL)
             continue
         ln, label, value, lb, vb = parsed[assigned[fi]]
         raw = value
         if nz.is_empty_value(raw, empty_pattern):
             result[spec.key] = FieldValue(key=spec.key, label=spec.label, value=NOT_FOUND, raw=raw,
-                                          bbox=vb or lb, label_bbox=lb, confidence=ln.conf, found=False, kind="text")
+                                          bbox=vb or lb, label_bbox=lb, confidence=ln.conf, found=False, kind="text",
+                                          missing_reason=MISSING_EMPTY)
             continue
         norm = nz.normalize(spec.type, raw, values=spec.values)
         if nz.is_empty_value(norm, empty_pattern):
             norm = NOT_FOUND
         found = norm != NOT_FOUND
         result[spec.key] = FieldValue(key=spec.key, label=spec.label, value=norm, raw=raw,
-                                      bbox=vb or lb, label_bbox=lb, confidence=ln.conf, found=found, kind="text")
+                                      bbox=vb or lb, label_bbox=lb, confidence=ln.conf, found=found, kind="text",
+                                      missing_reason=None if found else MISSING_EMPTY)
     return result
 
 

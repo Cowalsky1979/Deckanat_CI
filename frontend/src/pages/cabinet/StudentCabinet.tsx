@@ -1,11 +1,21 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, Loader2, MessageSquareText, Upload } from 'lucide-react'
+import { ChevronRight, FileUp, Loader2, MessageSquareText, Upload } from 'lucide-react'
 import { api } from '../../api'
 import { fmtDate } from '../../format'
 import type { Profile } from '../../profile'
 import ReviewStatusChip from '../../components/ReviewStatusChip'
 import ValidationChip from '../../components/ValidationChip'
+import { revisionLink } from '../../links'
+
+const DECISION_BOX = {
+  accepted: 'border-green-300 bg-green-50 text-green-800',
+  rejected: 'border-red-300 bg-red-50 text-red-800',
+  needs_fix: 'border-orange-300 bg-orange-50 text-orange-800',
+  pending: '',
+} as const
+
+const DECISION_DEFAULT = { accepted: 'документ принят', rejected: 'документ отклонён', needs_fix: 'нужно исправить', pending: '' } as const
 
 export default function StudentCabinet({ profile }: { profile: Profile }) {
   const docs = useQuery({ queryKey: ['documents', 'student'], queryFn: () => api.listDocuments(), refetchInterval: 15000 })
@@ -33,11 +43,15 @@ export default function StudentCabinet({ profile }: { profile: Profile }) {
         {docs.data?.map((d) => {
           const r = d.review
           const decided = r && r.status !== 'pending'
+          const canRevise = r && (r.status === 'needs_fix' || r.status === 'rejected') && d.revisions.length === 0
           return (
-            <Link key={d.id} to={`/d/${d.id}`} className="card block p-4 sm:p-5 hover:bg-ink-100 transition">
-              <div className="flex items-start gap-3">
+            <div key={d.id} className="card p-4 sm:p-5 hover:bg-ink-100 transition">
+              <Link to={`/d/${d.id}`} className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-ink-900">{d.doc_type_title || 'Документ'}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-ink-900">{d.doc_type_title || 'Документ'}</span>
+                    {d.parent && <span className="chip border-brand-300 bg-brand-50 text-brand-700">исправленная версия</span>}
+                  </div>
                   <div className="text-xs text-ink-500 truncate">{d.original_name} · {fmtDate(d.created_at)}{d.source === 'telegram' && ' · из Telegram'}</div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <ValidationChip doc={d} />
@@ -50,16 +64,29 @@ export default function StudentCabinet({ profile }: { profile: Profile }) {
                     </div>
                   )}
                   {decided && (
-                    <div className={`mt-2 rounded-xl border p-2.5 text-sm ${r.status === 'accepted' ? 'border-green-300 bg-green-50 text-green-800' : 'border-red-300 bg-red-50 text-red-800'}`}>
+                    <div className={`mt-2 rounded-xl border p-2.5 text-sm ${DECISION_BOX[r.status]}`}>
                       <span className="font-semibold">Ответ деканата: </span>
-                      {r.comment || (r.status === 'accepted' ? 'документ принят' : 'документ отклонён')}
+                      {r.comment || DECISION_DEFAULT[r.status]}
                       <div className="text-xs opacity-70 mt-0.5">{r.reviewer?.name ?? 'Деканат'} · {fmtDate(r.decided_at)}</div>
+                    </div>
+                  )}
+                  {d.revisions.length > 0 && (
+                    <div className="mt-2 text-xs text-ink-600">
+                      Исправленная версия отправлена {fmtDate(d.revisions[d.revisions.length - 1].created_at)}
+                      {d.revisions[d.revisions.length - 1].review_status && (
+                        <> · <ReviewStatusChip review={{ status: d.revisions[d.revisions.length - 1].review_status! } as NonNullable<typeof r>} /></>
+                      )}
                     </div>
                   )}
                 </div>
                 <ChevronRight className="shrink-0 text-ink-400 mt-1" />
-              </div>
-            </Link>
+              </Link>
+              {canRevise && (
+                <Link to={revisionLink(d)} className="btn-primary mt-3 !py-2 text-sm">
+                  <FileUp size={14} /> Загрузить исправленную версию
+                </Link>
+              )}
+            </div>
           )
         })}
       </div>

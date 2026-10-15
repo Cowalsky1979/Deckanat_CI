@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..config.schema import DocTypeConfig
-from ..models import NOT_FOUND, Answer, DocumentResult
+from ..models import MISSING_EMPTY, MISSING_LABEL, NOT_FOUND, Answer, DocumentResult
 from ..rules.positions import load_positions
 from .intents import Intent, classify_question
 
@@ -57,11 +57,22 @@ def build_answer(result: DocumentResult, cfg: DocTypeConfig, question: str, inte
             return Answer(question, True, "да" if present else "нет", text,
                           [f"field:{spec.key}", f"rule:{spec.rule}"], intent="field", field_key=spec.key)
         if fv is None or fv.value == NOT_FOUND:
-            return Answer(question, False, None,
-                          f"Поле «{spec.label}» не найдено в документе. Обратитесь в деканат.",
+            reason = fv.missing_reason if fv is not None else None
+            if reason == MISSING_EMPTY:
+                why = (f"Поле «{spec.label}» в документе не заполнено: метка поля найдена, а значение после неё пустое. "
+                       "Значение не домысливается (пункт 2.2 Положения).")
+            elif reason == MISSING_LABEL:
+                why = (f"Метку поля «{spec.label}» не удалось распознать на снимке, поэтому значение не найдено. "
+                       "Возможно, снимок нечёткий: попробуйте переснять документ или загрузить скан.")
+            else:
+                why = f"Поле «{spec.label}» не найдено в документе."
+            return Answer(question, False, None, f"{why} Обратитесь в деканат.",
                           [], intent="field_missing", field_key=spec.key)
-        return Answer(question, True, str(fv.value), f"{spec.label}: {fv.value}.",
-                      [f"field:{spec.key}"], intent="field", field_key=spec.key)
+        text = f"{spec.label}: {fv.value}."
+        if fv.is_manual:
+            ocr = fv.ocr_value if fv.ocr_value not in (None, NOT_FOUND) else "не найдено"
+            text += f" Значение исправлено вручную, OCR распознал: «{ocr}»."
+        return Answer(question, True, str(fv.value), text, [f"field:{spec.key}"], intent="field", field_key=spec.key)
 
     if intent.kind == "faq":
         faq = intent.faq or {}

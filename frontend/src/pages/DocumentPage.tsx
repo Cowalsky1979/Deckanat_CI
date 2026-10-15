@@ -9,6 +9,7 @@ import AnswerCard from '../components/AnswerCard'
 import FieldsTable from '../components/FieldsTable'
 import ValidationCard from '../components/ValidationCard'
 import ReviewCard from '../components/ReviewCard'
+import DiffCard from '../components/DiffCard'
 
 type Tab = 'answer' | 'fields' | 'ocr'
 
@@ -72,6 +73,14 @@ export default function DocumentPage() {
   // деканат смотрит заявку студента: загружать «другой документ» здесь не нужно
   const reviewing = profile?.role === 'dean' && !!doc.data?.review
   const fields = useMemo(() => (result ? Object.values(result.fields) : []), [result])
+  // ручная правка полей: студент (или аноним), пока документ не на рассмотрении и не принят
+  const reviewStatus = doc.data?.review?.status
+  const canEdit = profile?.role !== 'dean' && (!reviewStatus || reviewStatus === 'needs_fix' || reviewStatus === 'rejected')
+  const editField = async (key: string, value: string) => {
+    const d = await api.updateField(id, key, value)
+    qc.setQueryData(['doc', id], d)
+    qc.invalidateQueries({ queryKey: ['documents'] })
+  }
 
   if (doc.isLoading) return <div className="flex items-center gap-2 text-ink-600"><Loader2 className="animate-spin" /> Загрузка…</div>
   if (doc.data?.status === 'processing')
@@ -180,6 +189,8 @@ export default function DocumentPage() {
 
         <ReviewCard doc={doc.data} />
 
+        <DiffCard doc={doc.data} />
+
         <div className="card">
           <div role="tablist" className="flex gap-6 px-5 pt-4 border-b border-ink-200 overflow-x-auto no-scrollbar">
             {([['answer', 'Ответы'], ['fields', 'Карточка полей'], ['ocr', 'Распознанный текст']] as [Tab, string][]).map(([k, t]) => (
@@ -220,7 +231,9 @@ export default function DocumentPage() {
                 </div>
               </div>
             )}
-            {tab === 'fields' && <FieldsTable fields={result.fields} highlight={highlight} onSelect={setHighlight} docId={id} />}
+            {tab === 'fields' && (
+              <FieldsTable fields={result.fields} highlight={highlight} onSelect={setHighlight} docId={id} editable={canEdit} onEdit={editField} />
+            )}
             {tab === 'ocr' && (
               <div>
                 <pre className="whitespace-pre-wrap [overflow-wrap:anywhere] text-xs leading-5 bg-surface rounded-xl p-3 max-h-96 overflow-auto">{result.ocr_text}</pre>
